@@ -1,0 +1,26 @@
+# protection webui — Docker Compose for deployment
+services:
+  webui:
+    image: protection-webui:local
+    container_name: ${CONTAINER_NAME:-protection-webui}
+    environment:
+      - TZ=${TIMEZONE:-Asia/Shanghai}
+      - WEBUI_PORT=18780
+      - WEBUI_HOST=0.0.0.0
+      - WEBUI_LOG_LEVEL=${WEBUI_LOG_LEVEL:-INFO}
+      - WEBUI_LOG_FILE=/root/.nanobot/logs/webui.log
+      - WEBUI_ONLY=${WEBUI_ONLY:-true}
+      - WEBUI_AUTH_DISABLED=${WEBUI_AUTH_DISABLED:-true}
+      - WEBUI_CONFIG=/root/.nanobot/config.json
+    volumes:
+      - ${INSTANCE_ROOT:-./data}:/root/.protection
+      - ${SKILLS_ROOT:-./skills}:/root/.protection/workspace/skills
+    ports:
+      - "${PUBLISHED_PORT:-18780}:18780"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; urllib.request.urlopen('http://127.0.0.1:18780/', timeout=3); sys.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped

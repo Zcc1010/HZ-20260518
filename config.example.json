@@ -1,0 +1,74 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.nanobot/workspace",
+      "model": "custom/your-model",
+      "provider": "custom",
+      "maxTokens": 8192,
+      "contextWindowTokens": 65536,
+      "contextBlockLimit": null,
+      "temperature": 0.1,
+      "maxToolIterations": 20,
+      "maxToolResultChars": 16000,
+      "providerRetryMode": "standard",
+      "reasoningEffort": null,
+      "timezone": "Asia/Shanghai",
+      "dream": {
+        "intervalH": 2,
+        "cron": null,
+        "modelOverride": null,
+        "maxBatchSize": 20,
+        "maxIterations": 10
+      }
+    }
+  },
+  "channels": {
+    "sendProgress": true,
+    "sendToolHints": false,
+    "sendMaxRetries": 3,
+    "transcriptionProvider": "groq"
+  },
+  "providers": {
+    "custom": {
+      "apiKey": "",
+      "apiBase": "https://your-openai-compatible-endpoint/v1",
+      "extraHeaders": null
+    }
+  },
+  "api": {
+    "host": "127.0.0.1",
+    "port": 8900,
+    "timeout": 120.0
+  },
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18790,
+    "heartbeat": {
+      "enabled": false,
+      "intervalS": 1800,
+      "keepRecentMessages": 8
+    }
+  },
+  "tools": {
+    "web": {
+      "enable": false,
+      "proxy": null,
+      "search": {
+        "provider": "duckduckgo",
+        "apiKey": "",
+        "baseUrl": "",
+        "maxResults": 5,
+        "timeout": 30
+      }
+    },
+    "exec": {
+      "enable": true,
+      "timeout": 60,
+      "pathAppend": "",
+      "sandbox": ""
+    },
+    "restrictToWorkspace": true,
+    "mcpServers": {},
+    "ssrfWhitelist": []
+  }
+}

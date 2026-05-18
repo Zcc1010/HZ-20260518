@@ -1,0 +1,15 @@
+{
+  "providers": [
+    {
+      "name": "zhipu",
+      "api_key": "YOUR_ZHIPU_API_KEY",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4"
+    }
+  ],
+  "agents": {
+    "defaults": {
+      "model": "glm-4",
+      "workspace": "/root/.protection/workspace"
+    }
+  }
+}

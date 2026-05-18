@@ -1,0 +1,35 @@
+# protection webui — source build Docker Compose
+services:
+  webui:
+    build:
+      context: .
+    image: protection-webui:local
+    container_name: ${PROTECTION_CONTAINER_NAME:-protection-webui-local}
+    environment:
+      - TZ=Asia/Shanghai
+      - WEBUI_PORT=18780
+      - WEBUI_HOST=0.0.0.0
+      - WEBUI_LOG_LEVEL=INFO
+      - WEBUI_LOG_FILE=/root/.nanobot/logs/webui.log
+      - WEBUI_ONLY=true
+      - WEBUI_AUTH_DISABLED=true
+      - WEBUI_BASE_PATH=${WEBUI_BASE_PATH:-/assistant/}
+      - WEBUI_CONFIG=/root/.nanobot/config.json
+      - WEBUI_DIAGNOSTICS=${WEBUI_DIAGNOSTICS:-0}
+      - WEBUI_DIAGNOSTICS_WS=${WEBUI_DIAGNOSTICS_WS:-0}
+      - WEBUI_DIAGNOSTICS_AGENT=${WEBUI_DIAGNOSTICS_AGENT:-0}
+      - WEBUI_DIAGNOSTICS_PROVIDER=${WEBUI_DIAGNOSTICS_PROVIDER:-0}
+      - WEBUI_DIAGNOSTICS_RETRY=${WEBUI_DIAGNOSTICS_RETRY:-0}
+      - NANOBOT_DEBUG_LLM=${NANOBOT_DEBUG_LLM:-0}
+    volumes:
+      - ${PROTECTION_INSTANCE_ROOT:-/data/protection/user/public}:/root/.protection
+      - ${PROTECTION_SKILLS_ROOT:-/data/protection/skills}:/root/.protection/workspace/skills
+    ports:
+      - "${PROTECTION_PUBLISHED_PORT:-18781}:18780"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; urllib.request.urlopen('http://127.0.0.1:18780/', timeout=3); sys.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped

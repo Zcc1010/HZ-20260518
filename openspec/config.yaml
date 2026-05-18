@@ -1,0 +1,29 @@
+schema: spec-driven
+
+context: |
+  项目: nanobot-webui — 自托管 AI 智能体管理面板
+  技术栈: Python (FastAPI) 后端, React 18 + TypeScript + Vite 前端
+  包管理: bun (前端), uv (后端)
+  领域: 多通道 AI 智能体框架管理界面
+
+  ## 服务器配置
+  配置服务的配置文件存放路径: E:\workspace\配置文件\setting\
+  关键文件:
+    - config.json — nanobot 核心配置 (agents, providers, api, gateway, tools)
+    - docker-compose.yml — 容器编排配置
+    - DEPLOYMENT-GUIDE.md — 部署文档
+
+  涉及服务器配置的操作，务必先从 E:\workspace\配置文件\setting\ 读取当前配置值。
+  nanobot 核心配置结构包括: agents (默认模型、provider、temperature 等),
+  providers (apiKey, apiBase), api (host, port), gateway (host, port, heartbeat), tools (web, exec, mcpServers)。
+
+rules:
+  proposal:
+    - 方案不超过 500 字
+    - 必须包含"非目标"部分
+  tasks:
+    - 任务拆分为最多 2 小时的工作量
+  config:
+    - 服务器配置位于 E:\workspace\配置文件\setting\ — 修改前务必先读取
+    - 不要盲目覆盖 config.json，需谨慎合并变更
+    - config.json 中包含 API 密钥 — 视为敏感信息处理

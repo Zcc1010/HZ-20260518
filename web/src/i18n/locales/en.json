@@ -548,7 +548,8 @@
         "status": "Status",
         "createdAt": "Created At",
         "evaluation": "Evaluation",
-        "evaluationPlaceholder": "Click to edit"
+        "evaluationPlaceholder": "Click to edit",
+        "preview": "Preview"
       },
       "file": "Wave Record File",
       "files": "Wave Record Archive",

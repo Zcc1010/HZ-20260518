@@ -552,7 +552,8 @@
         "status": "状态",
         "createdAt": "创建时间",
         "evaluation": "评价",
-        "evaluationPlaceholder": "点击编辑"
+        "evaluationPlaceholder": "点击编辑",
+        "preview": "预览"
       },
       "file": "录波文件",
       "files": "录波压缩包",

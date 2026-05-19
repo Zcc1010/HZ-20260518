@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Download, Plus, FileText, Loader2, FileDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Download, Plus, FileText, Loader2, FileDown, ChevronLeft, ChevronRight, Eye } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../ui/button";
 import {
@@ -13,6 +13,7 @@ import {
 import { Badge } from "../../ui/badge";
 import { cn } from "../../../lib/utils";
 import { withBasePath } from "../../../lib/basePath";
+import { MarkdownRenderer } from "../../shared/MarkdownRenderer";
 
 interface WaveRecordJob {
   id: string;
@@ -148,6 +149,10 @@ export function WaveRecordWorkspace() {
   const [currentPage, setCurrentPage] = useState(1);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTitle, setPreviewTitle] = useState("");
+  const [previewContent, setPreviewContent] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
   const paginatedJobs = jobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -197,6 +202,38 @@ export function WaveRecordWorkspace() {
       // ignore
     }
     setEditingId(null);
+  };
+
+  const openPreview = async (url: string, title: string) => {
+    setPreviewOpen(true);
+    setPreviewTitle(title);
+    setPreviewLoading(true);
+    setPreviewContent("");
+    try {
+      const res = await fetch(withBasePath(url));
+      if (res.ok) {
+        let text = await res.text();
+        // Normalize line endings
+        text = text.replace(/\r\n/g, "\n");
+        // Strip LLM preamble + ```markdown code block wrapper
+        const fenceIdx = text.indexOf("```markdown\n");
+        if (fenceIdx !== -1) {
+          text = text.slice(fenceIdx + 12);
+          const closeIdx = text.lastIndexOf("\n```");
+          if (closeIdx !== -1) {
+            text = text.slice(0, closeIdx);
+          }
+          text = text.trim();
+        }
+        setPreviewContent(text);
+      } else {
+        setPreviewContent("加载失败");
+      }
+    } catch {
+      setPreviewContent("加载失败");
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   return (
@@ -350,13 +387,28 @@ export function WaveRecordWorkspace() {
                         </TableCell>
                         <TableCell className="px-5 py-4">
                           {job.status === "completed" && job.download_url ? (
-                            <a
-                              href={withBasePath(job.download_url)}
-                              className="inline-flex items-center gap-2 text-sm font-medium text-[#00706b] transition-colors hover:text-[#298c88]"
-                            >
-                              <Download className="h-4 w-4" />
-                              <span className="truncate max-w-[150px]" title={job.result_file_name ?? t("agentPlayground.download")}>{job.result_file_name ?? t("agentPlayground.download")}</span>
-                            </a>
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm text-[#555] truncate max-w-[120px]" title={job.result_file_name ?? ""}>
+                                {job.result_file_name ?? ""}
+                              </span>
+                              <a
+                                href={withBasePath(job.download_url)}
+                                className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors shrink-0"
+                                title={t("agentPlayground.download")}
+                              >
+                                <Download className="h-4 w-4" />
+                              </a>
+                              {job.result_file_name?.endsWith(".md") && (
+                                <button
+                                  type="button"
+                                  onClick={() => openPreview(job.download_url!, job.file_name)}
+                                  className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors shrink-0"
+                                  title={t("agentPlayground.waveRecord.preview")}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-sm text-[#888]">
                               {t("agentPlayground.downloadUnavailable")}
@@ -441,7 +493,26 @@ export function WaveRecordWorkspace() {
         onSuccess={(newJob) => {
           setJobs((prev) => [newJob, ...prev]);
         }}
+        onPreview={openPreview}
       />
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="brand-display text-[#000]">{previewTitle}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto min-h-0 min-w-0 -mx-6 px-6">
+            {previewLoading ? (
+              <div className="flex items-center justify-center py-10 text-[#666]">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <span className="ml-2">加载中...</span>
+              </div>
+            ) : (
+              <MarkdownRenderer content={previewContent} />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -468,9 +539,10 @@ interface CreateWaveRecordDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: (job: WaveRecordJob) => void;
+  onPreview: (url: string, title: string) => void;
 }
 
-function CreateWaveRecordDialog({ open, onOpenChange, onSuccess }: CreateWaveRecordDialogProps) {
+function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: CreateWaveRecordDialogProps) {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
@@ -625,14 +697,25 @@ function CreateWaveRecordDialog({ open, onOpenChange, onSuccess }: CreateWaveRec
               <span className="text-[#888]">
                 {t("agentPlayground.waveRecord.zipFileHint")}
               </span>
-              <a
-                href={withBasePath("/assets/录波文件上传手册.md")}
-                download
-                className="inline-flex items-center gap-1.5 text-[#00706b] hover:text-[#298c88] transition-colors"
-              >
-                <FileDown className="h-3.5 w-3.5" />
-                下载上传手册
-              </a>
+              <div className="flex items-center gap-2 ml-1">
+                <span className="text-sm text-[#555]">录波文件上传手册</span>
+                <a
+                  href={withBasePath("/assets/录波文件上传手册.md")}
+                  download
+                  className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors"
+                  title="下载手册"
+                >
+                  <FileDown className="h-3.5 w-3.5" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => onPreview("/assets/录波文件上传手册.md", "录波文件上传手册")}
+                  className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors"
+                  title="预览手册"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
           </div>
 

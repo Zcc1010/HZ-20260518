@@ -405,3 +405,4 @@ class WaveRecordJobInfo(BaseModel):
     device_type: str | None = None
     progress: int = 0
     progress_message: str | None = None
+    evaluation: str = ""

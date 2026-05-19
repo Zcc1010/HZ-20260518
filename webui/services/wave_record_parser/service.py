@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     device TEXT,
     device_type TEXT,
     progress INTEGER DEFAULT 0,
-    progress_message TEXT
+    progress_message TEXT,
+    evaluation TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_wave_jobs_created_at
@@ -661,6 +662,10 @@ class WaveRecordParserService:
                 conn.execute("ALTER TABLE jobs ADD COLUMN progress_message TEXT")
             except Exception:
                 pass  # Column already exists
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN evaluation TEXT")
+            except Exception:
+                pass  # Column already exists
             conn.execute(
                 """
                 UPDATE jobs
@@ -745,7 +750,8 @@ class WaveRecordParserService:
                     device,
                     device_type,
                     progress,
-                    progress_message
+                    progress_message,
+                    evaluation
                 FROM jobs
                 ORDER BY created_at DESC
                 """
@@ -774,7 +780,8 @@ class WaveRecordParserService:
                     device,
                     device_type,
                     progress,
-                    progress_message
+                    progress_message,
+                    evaluation
                 FROM jobs
                 WHERE id = ?
                 """,
@@ -1148,4 +1155,26 @@ class WaveRecordParserService:
             "device_type": row.get("device_type"),
             "progress": row.get("progress") or 0,
             "progress_message": row.get("progress_message"),
+            "evaluation": row.get("evaluation") or "",
         }
+
+    def update_job_evaluation(self, job_id: str, evaluation: str) -> dict[str, Any] | None:
+        self.initialize()
+        with connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE jobs SET evaluation = ?, updated_at = ? WHERE id = ?",
+                (evaluation, utcnow_iso(), job_id),
+            )
+            row = conn.execute(
+                """
+                SELECT
+                    id, status, created_at, updated_at, error_message, file_name,
+                    cfg_file_name, dat_file_name, hdr_file_name,
+                    result_file_name, result_relative_path, result_download_token,
+                    station, device, device_type, progress, progress_message, evaluation
+                FROM jobs WHERE id = ?
+                """,
+                (job_id,),
+            ).fetchone()
+        raw = row_to_dict(row)
+        return self._serialize_job(raw) if raw else None

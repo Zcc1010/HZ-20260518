@@ -546,7 +546,9 @@
         "station": "Station",
         "device": "Device",
         "status": "Status",
-        "createdAt": "Created At"
+        "createdAt": "Created At",
+        "evaluation": "Evaluation",
+        "evaluationPlaceholder": "Click to edit"
       },
       "file": "Wave Record File",
       "files": "Wave Record Archive",

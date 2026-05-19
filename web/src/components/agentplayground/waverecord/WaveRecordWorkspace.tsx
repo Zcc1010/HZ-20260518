@@ -28,6 +28,7 @@ interface WaveRecordJob {
   device?: string;
   progress: number;
   progress_message?: string;
+  evaluation?: string;
 }
 
 function formatDateTime(isoString: string): string {
@@ -136,7 +137,7 @@ async function createJob(
   return completeRes.json();
 }
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 
 export function WaveRecordWorkspace() {
   const { t } = useTranslation();
@@ -145,6 +146,8 @@ export function WaveRecordWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
   const paginatedJobs = jobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -178,6 +181,23 @@ export function WaveRecordWorkspace() {
       return () => clearInterval(interval);
     }
   }, [jobs]);
+
+  const saveEvaluation = async (jobId: string, value: string) => {
+    try {
+      const res = await fetch(withBasePath(`/api/wave-record-parser/jobs/${jobId}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evaluation: value }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, evaluation: updated.evaluation } : j)));
+      }
+    } catch {
+      // ignore
+    }
+    setEditingId(null);
+  };
 
   return (
     <>
@@ -215,8 +235,8 @@ export function WaveRecordWorkspace() {
         )}
 
         {!loading && !error && (
-          <div className="rounded-[28px] border border-[#e0e0e0] bg-white shadow-md overflow-hidden">
-            <div className="overflow-auto max-h-[calc(100vh-340px)]">
+          <div className="rounded-[28px] border border-[#e0e0e0] bg-white shadow-md overflow-hidden flex flex-col" style={{ height: "calc(100vh - 200px)" }}>
+            <div className="overflow-auto flex-1">
               <Table className="min-w-[800px]">
                 <TableHeader className="bg-[#0d5d57] sticky top-0 z-10">
                   <TableRow className="border-[#e8f0f0] hover:bg-[#0d5d57]">
@@ -236,6 +256,9 @@ export function WaveRecordWorkspace() {
                       {t("agentPlayground.waveRecord.table.createdAt")}
                     </TableHead>
                     <TableHead className="px-5 py-4 text-[#dcecec]">
+                      {t("agentPlayground.waveRecord.table.evaluation")}
+                    </TableHead>
+                    <TableHead className="px-5 py-4 text-[#dcecec]">
                       {t("agentPlayground.table.download")}
                     </TableHead>
                   </TableRow>
@@ -243,7 +266,7 @@ export function WaveRecordWorkspace() {
                 <TableBody>
                   {paginatedJobs.length === 0 ? (
                     <TableRow>
-                      <TableCell className="px-5 py-10 text-sm text-[#888]" colSpan={6}>
+                      <TableCell className="px-5 py-10 text-sm text-[#888]" colSpan={7}>
                         {t("agentPlayground.noJobs")}
                       </TableCell>
                     </TableRow>
@@ -293,6 +316,38 @@ export function WaveRecordWorkspace() {
                         <TableCell className="px-5 py-4 text-[#555]">
                           {formatDateTime(job.created_at)}
                         </TableCell>
+                        <TableCell className="px-5 py-4 w-[200px] min-w-[200px] max-w-[200px]">
+                          {editingId === job.id ? (
+                            <textarea
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onBlur={() => saveEvaluation(job.id, editValue)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  saveEvaluation(job.id, editValue);
+                                }
+                                if (e.key === "Escape") setEditingId(null);
+                              }}
+                              autoFocus
+                              rows={2}
+                              className="w-full rounded border border-[#298c88] bg-[#f0f7fa] px-2 py-1 text-sm text-[#000] outline-none resize-none"
+                            />
+                          ) : (
+                            <div
+                              onClick={() => {
+                                setEditingId(job.id);
+                                setEditValue(job.evaluation || "");
+                              }}
+                              className="w-[200px] min-h-[28px] cursor-pointer whitespace-pre-wrap break-words rounded px-1 py-0.5 text-sm text-[#555] hover:bg-[#f0f7fa]"
+                              title={job.evaluation || t("agentPlayground.waveRecord.table.evaluationPlaceholder")}
+                            >
+                              {job.evaluation || (
+                                <span className="text-[#bbb]">{t("agentPlayground.waveRecord.table.evaluationPlaceholder")}</span>
+                              )}
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell className="px-5 py-4">
                           {job.status === "completed" && job.download_url ? (
                             <a
@@ -330,21 +385,41 @@ export function WaveRecordWorkspace() {
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                    <button
-                      key={page}
-                      type="button"
-                      onClick={() => setCurrentPage(page)}
-                      className={cn(
-                        "inline-flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-medium transition-colors",
-                        page === currentPage
-                          ? "border-[#298c88] bg-[#298c88] text-white"
-                          : "border-[#e0e0e0] bg-white text-[#555] hover:bg-[#f0f7fa]"
-                      )}
-                    >
-                      {page}
-                    </button>
-                  ))}
+                  {(() => {
+                    const pages: (number | "...")[] = [];
+                    if (totalPages <= 7) {
+                      for (let i = 1; i <= totalPages; i++) pages.push(i);
+                    } else {
+                      pages.push(1);
+                      if (currentPage > 3) pages.push("...");
+                      for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+                        pages.push(i);
+                      }
+                      if (currentPage < totalPages - 2) pages.push("...");
+                      pages.push(totalPages);
+                    }
+                    return pages.map((page, idx) =>
+                      page === "..." ? (
+                        <span key={`ellipsis-${idx}`} className="inline-flex h-8 w-8 items-center justify-center text-sm text-[#888]">
+                          ...
+                        </span>
+                      ) : (
+                        <button
+                          key={page}
+                          type="button"
+                          onClick={() => setCurrentPage(page)}
+                          className={cn(
+                            "inline-flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-medium transition-colors",
+                            page === currentPage
+                              ? "border-[#298c88] bg-[#298c88] text-white"
+                              : "border-[#e0e0e0] bg-white text-[#555] hover:bg-[#f0f7fa]"
+                          )}
+                        >
+                          {page}
+                        </button>
+                      )
+                    );
+                  })()}
                   <button
                     type="button"
                     disabled={currentPage >= totalPages}

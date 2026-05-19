@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from webui.api.deps import get_services
@@ -81,6 +81,10 @@ class CompleteUploadRequest(BaseModel):
     device_type: str = "line"
 
 
+class UpdateWaveRecordJobRequest(BaseModel):
+    evaluation: str = ""
+
+
 @router.post("/uploads/init")
 async def init_chunked_upload(
     svc: Annotated[ServiceContainer, Depends(get_services)],
@@ -124,4 +128,18 @@ async def complete_chunked_upload(
         created_by="authless-public",
         run_in_background=True,
     )
+    return WaveRecordJobInfo(**job)
+
+
+@router.patch("/jobs/{job_id}", response_model=WaveRecordJobInfo)
+async def update_wave_record_job(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    job_id: str,
+    body: UpdateWaveRecordJobRequest,
+) -> WaveRecordJobInfo:
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+    job = service.update_job_evaluation(job_id, body.evaluation)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
     return WaveRecordJobInfo(**job)

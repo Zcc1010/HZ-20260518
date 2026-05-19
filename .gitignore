@@ -22,6 +22,10 @@ build
 *.tar
 *.tar.gz
 /nanobot
+nanobot-webui/blobs/
+nanobot-webui/manifest.json
+nanobot-webui/index.json
+nanobot-webui/oci-layout
 uv.lock
 web/tsconfig.tsbuildinfo
 dev-dist

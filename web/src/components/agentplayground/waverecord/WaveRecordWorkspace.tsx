@@ -423,7 +423,7 @@ export function WaveRecordWorkspace() {
             </div>
 
             {/* 分页控件 */}
-            {jobs.length > PAGE_SIZE && (
+            {jobs.length > 0 && (
               <div className="flex items-center justify-between border-t border-[#e8f0f0] bg-[#f0f7fa]/50 px-5 py-3">
                 <p className="text-xs text-[#666]">
                   共 {jobs.length} 条记录，第 {currentPage}/{totalPages} 页

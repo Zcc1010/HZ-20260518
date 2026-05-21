@@ -104,6 +104,26 @@ def _fix_zip_encoding(target: Path, zf: zipfile.ZipFile) -> None:
             src.rename(dst)
 
 
+def _unwrap_single_child_dirs(target: Path, max_depth: int = 3) -> None:
+    """如果解压后只有一层子目录，自动将其内容上移（最多 max_depth 层）。"""
+    for _ in range(max_depth):
+        sub_dirs = [p for p in target.iterdir() if p.is_dir()]
+        files = [p for p in target.iterdir() if p.is_file()]
+        if len(sub_dirs) != 1 or files:
+            break  # 不止一个子目录或有同级文件，不展开
+        wrapper = sub_dirs[0]
+        print(f"  [解压] 展开包裹目录: {wrapper.name}/", flush=True)
+        for item in list(wrapper.iterdir()):
+            dest = target / item.name
+            if dest.exists():
+                continue
+            shutil.move(str(item), str(dest))
+        try:
+            wrapper.rmdir()
+        except OSError:
+            break
+
+
 def unzip_archives(input_dir: Path, work_dir: Path) -> int:
     """
     扫描 input_dir 中的压缩包并解压到 work_dir，保留目录结构。
@@ -126,6 +146,8 @@ def unzip_archives(input_dir: Path, work_dir: Path) -> int:
             with zipfile.ZipFile(zip_path, 'r') as zf:
                 zf.extractall(target)
                 _fix_zip_encoding(target, zf)
+            # 自动展开解压后多余的包裹目录
+            _unwrap_single_child_dirs(target)
             count += 1
             print(f"  解压: {zip_path.name} -> {target}", flush=True)
             # 删除 work_dir 中的压缩包副本

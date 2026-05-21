@@ -7,7 +7,7 @@ from typing import Callable
 from starlette.responses import RedirectResponse
 
 
-DEFAULT_WEBUI_BASE_PATH = "/assistant/"
+DEFAULT_WEBUI_BASE_PATH = "/protection/"
 
 
 def normalize_base_path(value: str | None) -> str:

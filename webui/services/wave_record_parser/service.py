@@ -467,6 +467,34 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
         from webui.trip_briefing.pipeline import _fix_zip_encoding
         _fix_zip_encoding(input_dir, zf)
 
+    # 自动展开多余的包裹目录层
+    # 用户打包时可能多套了一层目录，如: zip → 事故名/ → 保护录波/
+    # 这里检测并自动修正，最多向下查找 3 层
+    EXPECTED_DIRS = {"保护录波", "故障录波"}
+    for _depth in range(3):
+        current_names = {p.name for p in input_dir.iterdir() if p.is_dir()}
+        if current_names & EXPECTED_DIRS:
+            break  # 已找到目标目录
+        # 只有一个子目录时才展开（避免误移正常结构）
+        sub_dirs = [p for p in input_dir.iterdir() if p.is_dir()]
+        if len(sub_dirs) == 1:
+            wrapper = sub_dirs[0]
+            print(f"[解压] 检测到多余包裹目录: {wrapper.name}/，正在展开...", flush=True)
+            # 将包裹目录内的所有内容移到 input_dir
+            for item in wrapper.iterdir():
+                dest = input_dir / item.name
+                if dest.exists():
+                    # 目标已存在，跳过
+                    continue
+                shutil.move(str(item), str(dest))
+            # 删除空的包裹目录
+            try:
+                wrapper.rmdir()
+            except OSError:
+                pass  # 非空则保留
+        else:
+            break  # 多个子目录，不做自动展开
+
     report_progress(20, "正在准备输出目录...")
 
     # Output directory
@@ -912,7 +940,24 @@ class WaveRecordParserService:
                 except Exception as exc:
                     self.mark_failed(job_id, str(exc))
                     continue
+                # Rename result file to include station/device name
+                result_path = self._rename_result_with_station(job_id, result_path)
+
                 self.mark_completed(job_id, result_path)
+
+    def _rename_result_with_station(self, job_id: str, result_path: Path) -> Path:
+        """确保结果文件名为 跳闸简报.md"""
+        # 如果文件名已经是跳闸简报.md，无需重命名
+        if result_path.name == "跳闸简报.md":
+            return result_path
+        # 重命名为跳闸简报.md
+        new_path = result_path.parent / "跳闸简报.md"
+        try:
+            result_path.rename(new_path)
+            return new_path
+        except OSError:
+            pass  # If rename fails, keep original name
+        return result_path
 
     def start_queue(self) -> None:
         self._schedule_queue()
@@ -1095,6 +1140,21 @@ class WaveRecordParserService:
                 (status, now, error_message, job_id),
             )
 
+    def delete_job(self, job_id: str) -> bool:
+        """删除任务及其所有文件。返回 True 表示成功。"""
+        self.initialize()
+        with connect(self.db_path) as conn:
+            row = conn.execute("SELECT id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if row is None:
+                return False
+            conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        # 删除任务文件目录
+        import shutil
+        job_dir = self._job_root(job_id)
+        if job_dir.exists():
+            shutil.rmtree(job_dir, ignore_errors=True)
+        return True
+
     def _job_root(self, job_id: str) -> Path:
         return self.app_root / "jobs" / job_id
 
@@ -1157,6 +1217,27 @@ class WaveRecordParserService:
             "progress_message": row.get("progress_message"),
             "evaluation": row.get("evaluation") or "",
         }
+
+    def get_export_files(self, job_ids: list[str]) -> list[tuple[Path, str]]:
+        """Return (file_path, display_name) for completed jobs with result files."""
+        self.initialize()
+        results: list[tuple[Path, str]] = []
+        with connect(self.db_path) as conn:
+            for job_id in job_ids:
+                row = conn.execute(
+                    "SELECT status, result_relative_path, result_file_name FROM jobs WHERE id = ?",
+                    (job_id,),
+                ).fetchone()
+                if row is None:
+                    continue
+                row = dict(row)
+                if row["status"] != "completed" or not row.get("result_relative_path"):
+                    continue
+                file_path = self.app_root / row["result_relative_path"]
+                if file_path.is_file():
+                    display_name = row.get("result_file_name") or file_path.name
+                    results.append((file_path, display_name))
+        return results
 
     def update_job_evaluation(self, job_id: str, evaluation: str) -> dict[str, Any] | None:
         self.initialize()

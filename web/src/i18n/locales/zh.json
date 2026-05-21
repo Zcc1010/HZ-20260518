@@ -526,7 +526,17 @@
       "d5000File": "D5000 文件",
       "newGenFile": "新一代文件",
       "status": "状态",
-      "download": "下载"
+      "download": "下载",
+      "actions": "操作",
+      "delete": "删除",
+      "deleteConfirmTitle": "确认删除",
+      "deleteConfirmMessage": "确定要删除任务「{{name}}」吗？删除后不可恢复。",
+      "deleteCancel": "取消",
+      "deleteConfirm": "删除",
+      "export": "导出",
+      "exportSelected": "导出所选",
+      "exportEmpty": "请至少选择一条数据",
+      "selectedCount": "已选 {{count}} 条"
     },
     "status": {
       "queued": "排队中",

@@ -1,15 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Download, Plus, FileText, Loader2, FileDown, ChevronLeft, ChevronRight, Eye } from "lucide-react";
+import { Download, Plus, Loader2, FileDown, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Button } from "../../ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../ui/table";
 import { Badge } from "../../ui/badge";
 import { cn } from "../../../lib/utils";
 import { withBasePath } from "../../../lib/basePath";
@@ -153,6 +146,10 @@ export function WaveRecordWorkspace() {
   const [previewTitle, setPreviewTitle] = useState("");
   const [previewContent, setPreviewContent] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<WaveRecordJob | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
   const paginatedJobs = jobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -175,6 +172,15 @@ export function WaveRecordWorkspace() {
       setCurrentPage(totalPages);
     }
   }, [jobs.length, totalPages, currentPage]);
+
+  // 清理已删除任务的选中状态
+  useEffect(() => {
+    const jobIds = new Set(jobs.map((j) => j.id));
+    setSelectedIds((prev) => {
+      const next = new Set(Array.from(prev).filter((id) => jobIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [jobs]);
 
   useEffect(() => {
     if (jobs.some((job) => job.status === "queued" || job.status === "processing")) {
@@ -236,6 +242,79 @@ export function WaveRecordWorkspace() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(withBasePath(`/api/wave-record-parser/jobs/${deleteTarget.id}`), { method: "DELETE" });
+      if (res.ok) {
+        setJobs((prev) => prev.filter((j) => j.id !== deleteTarget.id));
+        setDeleteTarget(null);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const selectable = paginatedJobs.filter((j) => j.status === "completed" && j.download_url);
+    if (selectable.length === 0) return;
+    const allSelected = selectable.every((j) => selectedIds.has(j.id));
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        selectable.forEach((j) => next.delete(j.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        selectable.forEach((j) => next.add(j.id));
+        return next;
+      });
+    }
+  };
+
+  const handleExport = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      toast.error(t("agentPlayground.table.exportEmpty"));
+      return;
+    }
+    setExporting(true);
+    try {
+      const res = await fetch(withBasePath("/api/wave-record-parser/jobs/export"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_ids: ids }),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "跳闸简报导出.zip";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const selectedCount = selectedIds.size;
+
   return (
     <>
       <div className="space-y-5">
@@ -249,13 +328,23 @@ export function WaveRecordWorkspace() {
             </h2>
           </div>
 
-          <Button
-            onClick={() => setDialogOpen(true)}
-            className="gap-2 self-start sm:self-auto bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]"
-          >
-            <Plus className="h-4 w-4" />
-            {t("agentPlayground.create")}
-          </Button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <Button
+              onClick={handleExport}
+              disabled={exporting}
+              className="gap-2 bg-[#00706b] hover:bg-[#0d5d57] text-white border border-[#00706b]"
+            >
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileArchive className="h-4 w-4" />}
+              {t("agentPlayground.table.exportSelected")}{selectedCount > 0 ? ` (${selectedCount})` : ""}
+            </Button>
+            <Button
+              onClick={() => setDialogOpen(true)}
+              className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]"
+            >
+              <Plus className="h-4 w-4" />
+              {t("agentPlayground.create")}
+            </Button>
+          </div>
         </div>
 
         {loading && (
@@ -273,56 +362,72 @@ export function WaveRecordWorkspace() {
 
         {!loading && !error && (
           <div className="rounded-[28px] border border-[#e0e0e0] bg-white shadow-md overflow-hidden flex flex-col" style={{ height: "calc(100vh - 200px)" }}>
-            <div className="overflow-auto flex-1">
-              <Table className="min-w-[800px]">
-                <TableHeader className="bg-[#0d5d57] sticky top-0 z-10">
-                  <TableRow className="border-[#e8f0f0] hover:bg-[#0d5d57]">
-                    <TableHead className="px-5 py-4 text-[#dcecec]">
-                      {t("agentPlayground.waveRecord.table.fileName")}
-                    </TableHead>
-                    <TableHead className="px-5 py-4 text-[#dcecec]">
+            <div className="flex-1 overflow-auto">
+              <table className="w-full text-sm border-separate border-spacing-0" style={{ minWidth: 800 }}>
+                <thead className="bg-[#0d5d57] sticky top-0 z-10">
+                  <tr className="border-b border-[#e8f0f0]">
+                    <th className="px-3 py-4 text-center w-[40px]">
+                      <input
+                        type="checkbox"
+                        checked={paginatedJobs.filter((j) => j.status === "completed" && j.download_url).length > 0 && paginatedJobs.filter((j) => j.status === "completed" && j.download_url).every((j) => selectedIds.has(j.id))}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 accent-[#298c88] cursor-pointer"
+                      />
+                    </th>
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
                       {t("agentPlayground.waveRecord.table.station")}
-                    </TableHead>
-                    <TableHead className="px-5 py-4 text-[#dcecec]">
+                    </th>
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
                       {t("agentPlayground.waveRecord.table.device")}
-                    </TableHead>
-                    <TableHead className="px-5 py-4 text-[#dcecec]">
+                    </th>
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
                       {t("agentPlayground.waveRecord.table.status")}
-                    </TableHead>
-                    <TableHead className="px-5 py-4 text-[#dcecec]">
+                    </th>
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
                       {t("agentPlayground.waveRecord.table.createdAt")}
-                    </TableHead>
-                    <TableHead className="px-5 py-4 text-[#dcecec]">
+                    </th>
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
                       {t("agentPlayground.waveRecord.table.evaluation")}
-                    </TableHead>
-                    <TableHead className="px-5 py-4 text-[#dcecec]">
+                    </th>
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
                       {t("agentPlayground.table.download")}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+                    </th>
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec] w-[100px] whitespace-nowrap">
+                      {t("agentPlayground.table.actions")}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
                   {paginatedJobs.length === 0 ? (
-                    <TableRow>
-                      <TableCell className="px-5 py-10 text-sm text-[#888]" colSpan={7}>
+                    <tr>
+                      <td className="px-5 py-10 text-sm text-[#888] text-center" colSpan={8}>
                         {t("agentPlayground.noJobs")}
-                      </TableCell>
-                    </TableRow>
+                      </td>
+                    </tr>
                   ) : (
-                    paginatedJobs.map((job) => (
-                      <TableRow key={job.id} className="border-[#e8f0f0] hover:bg-[#dcecec]/50">
-                        <TableCell className="px-5 py-4 font-medium text-[#000]">
-                          <div className="flex items-center gap-2 max-w-[200px]">
-                            <FileText className="h-4 w-4 text-[#666] shrink-0" />
-                            <span className="truncate" title={job.file_name}>{job.file_name}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="px-5 py-4 text-[#555]">
+                    paginatedJobs.map((job) => {
+                      const selectable = job.status === "completed" && !!job.download_url;
+                      return (
+                      <tr key={job.id} className="border-b border-[#e8f0f0] hover:bg-[#dcecec]/50 transition-colors">
+                        <td className="px-3 py-4 text-center w-[40px]">
+                          {selectable ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(job.id)}
+                              onChange={() => toggleSelect(job.id)}
+                              className="h-4 w-4 accent-[#298c88] cursor-pointer"
+                            />
+                          ) : (
+                            <span className="inline-block h-4 w-4" />
+                          )}
+                        </td>
+                        <td className="px-5 py-4 text-[#555]">
                           <span className="truncate max-w-[150px] block" title={job.station || "-"}>{job.station || "-"}</span>
-                        </TableCell>
-                        <TableCell className="px-5 py-4 text-[#555]">
+                        </td>
+                        <td className="px-5 py-4 text-[#555]">
                           <span className="truncate max-w-[150px] block" title={job.device || "-"}>{job.device || "-"}</span>
-                        </TableCell>
-                        <TableCell className="px-5 py-4">
+                        </td>
+                        <td className="px-5 py-4">
                           <div className="flex flex-col gap-2">
                             <Badge className={cn("rounded-full px-2.5 py-1 font-medium w-fit", statusBadgeClass(job.status))}>
                               {t(`agentPlayground.status.${job.status}`)}
@@ -349,11 +454,11 @@ export function WaveRecordWorkspace() {
                               </p>
                             )}
                           </div>
-                        </TableCell>
-                        <TableCell className="px-5 py-4 text-[#555]">
+                        </td>
+                        <td className="px-5 py-4 text-[#555]">
                           {formatDateTime(job.created_at)}
-                        </TableCell>
-                        <TableCell className="px-5 py-4 w-[200px] min-w-[200px] max-w-[200px]">
+                        </td>
+                        <td className="px-5 py-4 w-[200px] min-w-[200px] max-w-[200px]">
                           {editingId === job.id ? (
                             <textarea
                               value={editValue}
@@ -384,8 +489,8 @@ export function WaveRecordWorkspace() {
                               )}
                             </div>
                           )}
-                        </TableCell>
-                        <TableCell className="px-5 py-4">
+                        </td>
+                        <td className="px-5 py-4">
                           {job.status === "completed" && job.download_url ? (
                             <div className="flex items-center gap-3">
                               <span className="text-sm text-[#555] truncate max-w-[120px]" title={job.result_file_name ?? ""}>
@@ -414,12 +519,23 @@ export function WaveRecordWorkspace() {
                               {t("agentPlayground.downloadUnavailable")}
                             </span>
                           )}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                        </td>
+                        <td className="px-5 py-4 w-[80px]">
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(job)}
+                            className="inline-flex items-center text-[#999] hover:text-[#d44] transition-colors"
+                            title={t("agentPlayground.table.delete")}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                      );
+                    })
                   )}
-                </TableBody>
-              </Table>
+                </tbody>
+              </table>
             </div>
 
             {/* 分页控件 */}
@@ -511,6 +627,34 @@ export function WaveRecordWorkspace() {
               <MarkdownRenderer content={previewContent} />
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#000]">{t("agentPlayground.table.deleteConfirmTitle")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-[#555]">
+            {t("agentPlayground.table.deleteConfirmMessage", { name: deleteTarget?.file_name ?? "" })}
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              className="border-[#e0e0e0] text-[#555]"
+            >
+              {t("agentPlayground.table.deleteCancel")}
+            </Button>
+            <Button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-[#d44] hover:bg-[#b33] text-white"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              {t("agentPlayground.table.deleteConfirm")}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

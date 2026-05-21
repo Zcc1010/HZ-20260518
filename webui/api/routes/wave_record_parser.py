@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from webui.api.deps import get_services
@@ -85,6 +88,10 @@ class UpdateWaveRecordJobRequest(BaseModel):
     evaluation: str = ""
 
 
+class ExportJobsRequest(BaseModel):
+    job_ids: list[str]
+
+
 @router.post("/uploads/init")
 async def init_chunked_upload(
     svc: Annotated[ServiceContainer, Depends(get_services)],
@@ -131,6 +138,38 @@ async def complete_chunked_upload(
     return WaveRecordJobInfo(**job)
 
 
+@router.post("/jobs/export")
+async def export_wave_record_jobs(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    body: ExportJobsRequest,
+) -> StreamingResponse:
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+    files = service.get_export_files(body.job_ids)
+    if not files:
+        raise HTTPException(status_code=404, detail="No exportable files found")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        used_names: set[str] = set()
+        for file_path, display_name in files:
+            name = display_name
+            counter = 1
+            while name in used_names:
+                stem = Path(display_name).stem
+                suffix = Path(display_name).suffix
+                name = f"{stem}_{counter}{suffix}"
+                counter += 1
+            used_names.add(name)
+            zf.write(file_path, name)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="trip_briefings.zip"'},
+    )
+
+
 @router.patch("/jobs/{job_id}", response_model=WaveRecordJobInfo)
 async def update_wave_record_job(
     svc: Annotated[ServiceContainer, Depends(get_services)],
@@ -143,3 +182,16 @@ async def update_wave_record_job(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return WaveRecordJobInfo(**job)
+
+
+@router.delete("/jobs/{job_id}")
+async def delete_wave_record_job(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    job_id: str,
+) -> dict:
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+    ok = service.delete_job(job_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True}

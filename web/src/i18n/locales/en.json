@@ -522,7 +522,17 @@
       "d5000File": "D5000 file",
       "newGenFile": "Next-generation file",
       "status": "Status",
-      "download": "Download"
+      "download": "Download",
+      "actions": "Actions",
+      "delete": "Delete",
+      "deleteConfirmTitle": "Confirm Delete",
+      "deleteConfirmMessage": "Are you sure you want to delete \"{{name}}\"? This cannot be undone.",
+      "deleteCancel": "Cancel",
+      "deleteConfirm": "Delete",
+      "export": "Export",
+      "exportSelected": "Export Selected",
+      "exportEmpty": "Please select at least one record",
+      "selectedCount": "{{count}} selected"
     },
     "status": {
       "queued": "Queued",

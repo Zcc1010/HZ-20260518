@@ -27,6 +27,7 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
         curl \
         libreoffice \
         tzdata \
+        antiword \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
@@ -46,7 +47,8 @@ RUN pip install --no-cache-dir \
         -i ${PIP_INDEX_URL} \
         . && \
     pip uninstall -y numpy && \
-    pip install --no-cache-dir -i ${PIP_INDEX_URL} numpy==1.26.4
+    pip install --no-cache-dir -i ${PIP_INDEX_URL} numpy==1.26.4 && \
+    pip install --no-cache-dir -i ${PIP_INDEX_URL} pymupdf xlrd openpyxl python-docx
 
 RUN mkdir -p "${TIKTOKEN_CACHE_DIR}" \
     && python - <<'PY'

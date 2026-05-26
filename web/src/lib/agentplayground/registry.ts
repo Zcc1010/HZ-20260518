@@ -1,4 +1,4 @@
-import { AudioWaveform, type LucideIcon } from "lucide-react";
+import { AudioWaveform, FileCheck, type LucideIcon } from "lucide-react";
 
 export interface AgentPlaygroundAppDefinition {
   id: string;
@@ -13,6 +13,12 @@ export const AGENT_PLAYGROUND_APPS: AgentPlaygroundAppDefinition[] = [
     titleKey: "agentPlayground.apps.waveRecordParser.title",
     descriptionKey: "agentPlayground.apps.waveRecordParser.description",
     icon: AudioWaveform,
+  },
+  {
+    id: "setting-check",
+    titleKey: "agentPlayground.apps.settingCheck.title",
+    descriptionKey: "agentPlayground.apps.settingCheck.description",
+    icon: FileCheck,
   },
 ];
 

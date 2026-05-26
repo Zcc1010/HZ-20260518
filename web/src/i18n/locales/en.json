@@ -548,6 +548,10 @@
       "waveRecordParser": {
         "title": "Wave Record Parser",
         "description": "Upload wave record files to parse and extract key data automatically."
+      },
+      "settingCheck": {
+        "title": "Setting Check",
+        "description": "Upload setting sheets and calculation documents to verify and generate reports."
       }
     },
     "waveRecord": {
@@ -579,6 +583,41 @@
       "selectFileRequired": "Please select at least one file",
       "zipRequired": "A .zip archive is required",
       "zipFileHint": "Upload a .zip archive containing protection and fault recorder files",
+      "processing": "Processing...",
+      "uploading": "Uploading..."
+    },
+    "settingCheck": {
+      "table": {
+        "station": "Station",
+        "deviceName": "Device Name",
+        "status": "Status",
+        "createdAt": "Created At",
+        "evaluation": "Evaluation",
+        "evaluationPlaceholder": "Click to edit",
+        "preview": "Preview"
+      },
+      "station": "Station",
+      "stationPlaceholder": "Enter station name",
+      "stationRequired": "Please enter station name",
+      "deviceName": "Device Name",
+      "deviceNamePlaceholder": "Enter device name",
+      "deviceNameRequired": "Please enter device name",
+      "settingFiles": "Setting Files",
+      "settingFilesHint": "Supports xls, xlsx, doc, docx, pdf, txt, md formats",
+      "settingFilesRequired": "Please upload at least one setting file",
+      "calcFiles": "Calculation Files",
+      "calcFilesHint": "Supports doc, docx, pdf, txt, md, xls, xlsx formats",
+      "calcFilesRequired": "Please upload at least one calculation file",
+      "selectFiles": "Select Files",
+      "invalidSettingFileType": "Invalid setting file format",
+      "invalidCalcFileType": "Invalid calculation file format",
+      "uploadHint": "Upload setting files and calculation files separately",
+      "uploadManual": "Setting Check Upload Manual",
+      "downloadManual": "Download Manual",
+      "previewManual": "Preview Manual",
+      "createDialogTitle": "Create Setting Check Job",
+      "createDialogDescription": "Upload setting sheets and calculation documents. The system will verify and generate a report.",
+      "startCheck": "Start Check",
       "processing": "Processing...",
       "uploading": "Uploading..."
     },

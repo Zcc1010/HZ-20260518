@@ -56,7 +56,6 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
     app.add_middleware(
         BasePathMiddleware,
         base_path=[get_webui_base_path(), "/agentplayground/"],
-        authless_only_base_paths={"/agentplayground/": "/assistant/"},
     )
 
     # Attach shared state
@@ -79,6 +78,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
         openai_proxy,
         providers,
         sessions,
+        setting_check,
         skills,
         users,
         wave_record_parser,
@@ -96,6 +96,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
     app.include_router(files.router, prefix="/api/files", tags=["files"])
     app.include_router(g_file_compare.router, prefix="/api/g-file-compare", tags=["g-file-compare"])
     app.include_router(wave_record_parser.router, prefix="/api/wave-record-parser", tags=["wave-record-parser"])
+    app.include_router(setting_check.router, prefix="/api/setting-check", tags=["setting-check"])
     app.include_router(cron.router, prefix="/api/cron", tags=["cron"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
     app.include_router(users.router, prefix="/api/users", tags=["users"])

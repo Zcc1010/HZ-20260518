@@ -552,6 +552,10 @@
       "waveRecordParser": {
         "title": "录波解析",
         "description": "上传录波文件，自动解析并提取关键数据。"
+      },
+      "settingCheck": {
+        "title": "定值校核",
+        "description": "上传定值单和计算书，自动校核并生成报告。"
       }
     },
     "waveRecord": {
@@ -583,6 +587,41 @@
       "selectFileRequired": "请选择至少一个文件",
       "zipRequired": "必须上传 .zip 压缩包",
       "zipFileHint": "请上传包含保护录波和故障录波文件的 .zip 压缩包",
+      "processing": "处理中...",
+      "uploading": "上传中..."
+    },
+    "settingCheck": {
+      "table": {
+        "station": "厂站",
+        "deviceName": "设备名称",
+        "status": "状态",
+        "createdAt": "创建时间",
+        "evaluation": "评价",
+        "evaluationPlaceholder": "点击编辑",
+        "preview": "预览"
+      },
+      "station": "厂站",
+      "stationPlaceholder": "请输入厂站名称",
+      "stationRequired": "请输入厂站名称",
+      "deviceName": "设备名称",
+      "deviceNamePlaceholder": "请输入设备名称",
+      "deviceNameRequired": "请输入设备名称",
+      "settingFiles": "定值单文件",
+      "settingFilesHint": "支持 xls、xlsx、doc、docx、pdf、txt、md 格式",
+      "settingFilesRequired": "请上传至少一个定值单文件",
+      "calcFiles": "计算书文件",
+      "calcFilesHint": "支持 doc、docx、pdf、txt、md、xls、xlsx 格式",
+      "calcFilesRequired": "请上传至少一个计算书文件",
+      "selectFiles": "选择文件",
+      "invalidSettingFileType": "定值单文件格式不支持",
+      "invalidCalcFileType": "计算书文件格式不支持",
+      "uploadHint": "请分别上传定值单和计算书文件",
+      "uploadManual": "定值校核上传手册",
+      "downloadManual": "下载手册",
+      "previewManual": "预览手册",
+      "createDialogTitle": "新建定值校核任务",
+      "createDialogDescription": "上传定值单和计算书文件，系统将自动校核并生成报告。",
+      "startCheck": "开始校核",
       "processing": "处理中...",
       "uploading": "上传中..."
     },

@@ -32,6 +32,22 @@ def _resolve_agentplayground_attachment(svc: ServiceContainer, token: str) -> di
             if result is not None:
                 return result
 
+    # Try setting check
+    sc_service = getattr(svc, "setting_check_service", None)
+    if sc_service is None:
+        try:
+            from webui.api.routes.setting_check import get_setting_check_service
+            sc_service = get_setting_check_service(svc)
+        except Exception:
+            sc_service = None
+
+    if sc_service is not None:
+        find_result_attachment = getattr(sc_service, "find_result_attachment", None)
+        if find_result_attachment is not None:
+            result = find_result_attachment(token)
+            if result is not None:
+                return result
+
     # Try g-file-compare
     service = getattr(svc, "g_file_compare_service", None)
     if service is None:

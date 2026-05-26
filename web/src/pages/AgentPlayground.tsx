@@ -1,11 +1,13 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Brain } from "lucide-react";
 import { AppList } from "../components/agentplayground/AppList";
 import { WelcomePanel } from "../components/agentplayground/WelcomePanel";
 import { WaveRecordWorkspace } from "../components/agentplayground/waverecord/WaveRecordWorkspace";
+import { SettingCheckWorkspace } from "../components/agentplayground/settingcheck/SettingCheckWorkspace";
 import { AGENT_PLAYGROUND_APPS, getAgentPlaygroundApp } from "../lib/agentplayground/registry";
-import { BRAND_ASSETS, BRAND_NAME } from "../lib/branding";
+import { BRAND_NAME } from "../lib/branding";
 
 export default function AgentPlayground() {
   const { t } = useTranslation();
@@ -31,8 +33,8 @@ export default function AgentPlayground() {
       <div className="mx-auto flex max-w-[1600px] flex-col gap-4 lg:h-[calc(100vh-2.5rem)] lg:flex-row">
         <aside className="flex w-full flex-col rounded-[30px] border border-[#e0e0e0] bg-white/95 p-5 shadow-[0_4px_20px_rgba(13,93,87,0.08)] lg:w-[290px] lg:shrink-0 lg:p-6">
           <div className="flex items-start gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-[24px] bg-gradient-to-br from-[#f0f7fa] to-[#e8f0f0] shadow-md">
-              <img src={BRAND_ASSETS.logoSmall} alt={BRAND_NAME} className="h-8 w-8 object-contain" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-[24px] bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-md">
+              <Brain className="h-8 w-8 text-white" />
             </div>
             <div className="min-w-0">
               <p className="brand-display text-2xl leading-none text-[#000]">{BRAND_NAME}</p>
@@ -61,6 +63,8 @@ export default function AgentPlayground() {
         <main className="min-h-[540px] flex-1 rounded-[30px] border border-[#e0e0e0] bg-white/95 p-4 shadow-[0_4px_20px_rgba(13,93,87,0.08)] sm:p-5 lg:overflow-auto lg:p-6">
           {selectedApp?.id === "wave-record-parser" ? (
             <WaveRecordWorkspace />
+          ) : selectedApp?.id === "setting-check" ? (
+            <SettingCheckWorkspace />
           ) : (
             <WelcomePanel apps={AGENT_PLAYGROUND_APPS} onSelect={openApp} />
           )}

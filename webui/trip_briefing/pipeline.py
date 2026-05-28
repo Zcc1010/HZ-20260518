@@ -377,6 +377,7 @@ def generate_paragraph(
     device_type: str,
     output_dir: Path,
     monitor: "Monitor",
+    config: "PipelineConfig" = None,
 ) -> LLMResponse:
     """
     Step 7: 为单套装置生成段落。
@@ -414,7 +415,7 @@ def generate_paragraph(
         response = llm_client.chat_completion(
             messages=[{"role": "user", "content": prompt_text}],
             model=llm_client.model,
-            max_tokens=4096,
+            max_tokens=config.subagent_max_tokens if config else 4096,
         )
         tracker.input_tokens = response.prompt_tokens
         tracker.output_tokens = response.completion_tokens
@@ -437,6 +438,7 @@ def generate_briefing(
     device_type: str,
     output_dir: Path,
     monitor: "Monitor",
+    config: "PipelineConfig" = None,
 ) -> LLMResponse:
     """
     Step 8: 读取所有段落，生成完整简报。
@@ -472,7 +474,7 @@ def generate_briefing(
         response = llm_client.chat_completion(
             messages=[{"role": "user", "content": prompt_text}],
             model=llm_client.model,
-            max_tokens=8192,
+            max_tokens=config.main_agent_max_tokens if config else 16384,
         )
         tracker.input_tokens = response.prompt_tokens
         tracker.output_tokens = response.completion_tokens
@@ -593,6 +595,7 @@ def run_pipeline(
             device_type=dtype,
             output_dir=output_dir,
             monitor=monitor,
+            config=config,
         )
         if not result.success:
             failed_count += 1
@@ -614,6 +617,7 @@ def run_pipeline(
         device_type=device_type,
         output_dir=output_dir,
         monitor=monitor,
+        config=config,
     )
 
     # 保存监控日志

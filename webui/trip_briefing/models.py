@@ -25,7 +25,7 @@ class PipelineConfig(BaseModel):
     timeout: int = 120
     max_retries: int = 3
     subagent_max_tokens: int = 4096
-    main_agent_max_tokens: int = 8192
+    main_agent_max_tokens: int = 16384
     temperature: float = 0.1
     enable_thinking: bool = False
 

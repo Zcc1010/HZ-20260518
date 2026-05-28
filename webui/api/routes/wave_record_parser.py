@@ -195,3 +195,25 @@ async def delete_wave_record_job(
     if not ok:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"ok": True}
+
+
+@router.get("/jobs/{job_id}/preview")
+async def preview_wave_record_job(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    job_id: str,
+) -> dict:
+    """返回已完成任务的 Markdown 报告内容，用于浏览器内预览。"""
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+    job = service.get_job(job_id)
+    if not job or job.get("status") != "completed":
+        raise HTTPException(status_code=404, detail="Job not found or not completed")
+
+    # 在 job output 目录中查找 .md 文件
+    job_root = service.app_root / "jobs" / job_id / "output"
+    md_files = list(job_root.glob("跳闸简报.md")) + list(job_root.glob("*.md"))
+    if not md_files:
+        raise HTTPException(status_code=404, detail="Preview not available")
+
+    content = md_files[0].read_text(encoding="utf-8")
+    return {"content": content}

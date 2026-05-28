@@ -943,6 +943,9 @@ class WaveRecordParserService:
                 # Rename result file to include station/device name
                 result_path = self._rename_result_with_station(job_id, result_path)
 
+                # Convert .md to .docx for user download
+                result_path = self._convert_to_docx(result_path)
+
                 self.mark_completed(job_id, result_path)
 
     def _rename_result_with_station(self, job_id: str, result_path: Path) -> Path:
@@ -958,6 +961,20 @@ class WaveRecordParserService:
         except OSError:
             pass  # If rename fails, keep original name
         return result_path
+
+    def _convert_to_docx(self, md_path: Path) -> Path:
+        """将 .md 报告转换为 .docx，保留 .md 用于预览。"""
+        if md_path.suffix.lower() != ".md" or not md_path.is_file():
+            return md_path
+        docx_path = md_path.with_suffix(".docx")
+        try:
+            from webui.utils.md_to_docx import MdToDocxConverter
+            converter = MdToDocxConverter()
+            md_content = md_path.read_text(encoding="utf-8")
+            converter.convert(md_content, docx_path)
+            return docx_path
+        except Exception:
+            return md_path  # 转换失败时回退到 .md
 
     def start_queue(self) -> None:
         self._schedule_queue()
@@ -1210,6 +1227,7 @@ class WaveRecordParserService:
             "file_name": row["file_name"],
             "result_file_name": row.get("result_file_name") if downloadable else None,
             "download_url": f"/api/files/d/{token}" if downloadable else None,
+            "preview_url": f"/api/wave-record-parser/jobs/{row['id']}/preview" if downloadable else None,
             "station": row.get("station"),
             "device": row.get("device"),
             "device_type": row.get("device_type"),

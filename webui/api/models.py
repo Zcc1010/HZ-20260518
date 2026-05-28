@@ -400,6 +400,7 @@ class WaveRecordJobInfo(BaseModel):
     file_name: str
     result_file_name: str | None = None
     download_url: str | None = None
+    preview_url: str | None = None
     station: str | None = None
     device: str | None = None
     device_type: str | None = None

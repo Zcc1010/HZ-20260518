@@ -18,6 +18,7 @@ interface WaveRecordJob {
   file_name: string;
   result_file_name?: string;
   download_url?: string;
+  preview_url?: string;
   station?: string;
   device?: string;
   progress: number;
@@ -218,9 +219,8 @@ export function WaveRecordWorkspace() {
     try {
       const res = await fetch(withBasePath(url));
       if (res.ok) {
-        let text = await res.text();
-        // Normalize line endings
-        text = text.replace(/\r\n/g, "\n");
+        const data = await res.json();
+        let text = (data.content || "").replace(/\r\n/g, "\n");
         // Strip LLM preamble + ```markdown code block wrapper
         const fenceIdx = text.indexOf("```markdown\n");
         if (fenceIdx !== -1) {
@@ -503,10 +503,10 @@ export function WaveRecordWorkspace() {
                               >
                                 <Download className="h-4 w-4" />
                               </a>
-                              {job.result_file_name?.endsWith(".md") && (
+                              {job.preview_url && (
                                 <button
                                   type="button"
-                                  onClick={() => openPreview(job.download_url!, job.file_name)}
+                                  onClick={() => openPreview(job.preview_url!, job.file_name)}
                                   className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors shrink-0"
                                   title={t("agentPlayground.waveRecord.preview")}
                                 >

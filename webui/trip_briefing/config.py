@@ -26,7 +26,9 @@ def create_config_from_provider(
         timeout=180,
         max_retries=3,
         subagent_max_tokens=4096,
+        subagent_timeout=120,
         main_agent_max_tokens=16384,
+        main_agent_timeout=300,
         temperature=0.1,
         enable_thinking=False,
     )

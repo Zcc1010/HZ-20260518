@@ -588,7 +588,22 @@
       "zipRequired": "必须上传 .zip 压缩包",
       "zipFileHint": "请上传包含保护录波和故障录波文件的 .zip 压缩包",
       "processing": "处理中...",
-      "uploading": "上传中..."
+      "uploading": "上传中...",
+      "batchUpload": "批量上传",
+      "batchDialogTitle": "批量上传录波文件",
+      "batchDialogDescription": "选择多个 ZIP 文件，系统将自动从文件名解析厂站和装置（格式：厂站_装置.zip）。",
+      "batchParsing": "解析文件名...",
+      "batchNoFiles": "请选择至少一个 ZIP 文件",
+      "batchStationDevice": "厂站 / 装置",
+      "batchFileName": "文件名",
+      "batchSize": "大小",
+      "batchStatus": "状态",
+      "batchPending": "待上传",
+      "batchUploading": "上传中",
+      "batchDone": "已完成",
+      "batchFailed": "失败",
+      "batchStartUpload": "开始上传",
+      "batchUploadProgress": "上传进度"
     },
     "settingCheck": {
       "table": {

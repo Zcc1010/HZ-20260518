@@ -467,9 +467,10 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
         from webui.trip_briefing.pipeline import _fix_zip_encoding
         _fix_zip_encoding(input_dir, zf)
 
-    # 自动展开多余的包裹目录层
+    # 自动展开多余的包裹目录层（先展开，再解压内层ZIP）
     # 用户打包时可能多套了一层目录，如: zip → 事故名/ → 保护录波/
     # 这里检测并自动修正，最多向下查找 3 层
+    from webui.trip_briefing.pipeline import _unwrap_single_child_dirs
     EXPECTED_DIRS = {"保护录波", "故障录波"}
     for _depth in range(3):
         current_names = {p.name for p in input_dir.iterdir() if p.is_dir()}
@@ -495,7 +496,60 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
         else:
             break  # 多个子目录，不做自动展开
 
-    report_progress(20, "正在准备输出目录...")
+    # 解压内层嵌套的 ZIP 文件（保护录波/故障录波目录下的装置 ZIP）
+    from webui.trip_briefing.pipeline import _find_zip_files
+    inner_zips = _find_zip_files(input_dir)
+    for inner_zip in inner_zips:
+        target_dir = inner_zip.parent
+        try:
+            with zipfile.ZipFile(inner_zip, 'r') as zf:
+                zf.extractall(target_dir)
+                _fix_zip_encoding(target_dir, zf)
+            _unwrap_single_child_dirs(target_dir)
+            inner_zip.unlink()  # 解压后删除内层 ZIP
+            print(f"[解压] 内层ZIP: {inner_zip.name} -> {target_dir}", flush=True)
+        except Exception as e:
+            print(f"[解压] 内层ZIP失败: {inner_zip.name}: {e}", flush=True)
+
+    # ── 验证 ZIP 内容结构 ──
+    report_progress(20, "正在验证文件结构...")
+
+    has_protect = (input_dir / "保护录波").is_dir()
+    has_fault = (input_dir / "故障录波").is_dir()
+
+    if not has_protect and not has_fault:
+        # 列出实际目录帮助用户排查
+        actual = [p.name for p in input_dir.iterdir() if p.is_dir()]
+        actual_str = "、".join(actual[:10]) if actual else "（空）"
+        raise ValueError(
+            f"压缩包内未找到「保护录波」或「故障录波」目录。"
+            f"实际目录：{actual_str}。"
+            f"请确认压缩包结构正确（应包含 保护录波/ 或 故障录波/ 目录）"
+        )
+
+    # 检查每个子目录下是否有装置文件
+    from webui.trip_briefing.pipeline import scan_devices
+    errors = []
+    if has_protect:
+        devices = scan_devices(input_dir, sub_dir="保护录波")
+        if not devices:
+            # 列出一级子目录帮助排查
+            protect_dir = input_dir / "保护录波"
+            sub_names = [p.name for p in protect_dir.iterdir() if p.is_dir()]
+            sub_str = "、".join(sub_names[:10]) if sub_names else "（空）"
+            errors.append(f"「保护录波」目录下未找到有效的装置文件（子目录：{sub_str}）")
+    if has_fault:
+        devices = scan_devices(input_dir, sub_dir="故障录波")
+        if not devices:
+            fault_dir = input_dir / "故障录波"
+            sub_names = [p.name for p in fault_dir.iterdir() if p.is_dir()]
+            sub_str = "、".join(sub_names[:10]) if sub_names else "（空）"
+            errors.append(f"「故障录波」目录下未找到有效的装置文件（子目录：{sub_str}）")
+
+    if errors:
+        raise ValueError("；".join(errors) + "。每个装置目录下需包含 .hdr / .cfg / .rms.csv / .events.csv 中至少一种文件")
+
+    report_progress(22, "正在准备输出目录...")
 
     # Output directory
     output_dir = job_root / "output"
@@ -528,6 +582,8 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
                 lines.append("")
             report_path = job_root / "analysis_report.md"
             report_path.write_text("\n".join(lines), encoding="utf-8")
+            if exit_code != 0:
+                raise RuntimeError(f"跳闸简报生成失败（可能超时），已保留部分段落结果")
             return report_path
         raise FileNotFoundError(f"跳闸简报生成失败 (exit_code={exit_code})")
 

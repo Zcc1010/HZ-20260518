@@ -25,7 +25,9 @@ class PipelineConfig(BaseModel):
     timeout: int = 120
     max_retries: int = 3
     subagent_max_tokens: int = 4096
+    subagent_timeout: int = 120  # 子 Agent LLM 调用硬超时（秒）
     main_agent_max_tokens: int = 16384
+    main_agent_timeout: int = 300  # 主 Agent LLM 调用硬超时（秒）
     temperature: float = 0.1
     enable_thinking: bool = False
 

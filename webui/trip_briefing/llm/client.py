@@ -52,25 +52,53 @@ class LLMClient:
         temperature: float = 0.1,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        """调用 LLM chat completion API，支持重试"""
+        """调用 LLM chat completion API，支持重试，使用流式模式防止挂起"""
         for attempt in range(self.max_retries):
             try:
-                response = self.client.chat.completions.create(
+                # 使用流式模式，防止 API 挂起
+                stream = self.client.chat.completions.create(
                     model=model,
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    stream=True,
+                    stream_options={"include_usage": True},
                     extra_body={"enable_thinking": self.enable_thinking},
                 )
 
-                if response.choices and len(response.choices) > 0:
-                    content = response.choices[0].message.content or ""
+                content_parts = []
+                prompt_tokens = 0
+                completion_tokens = 0
+                total_tokens = 0
+                last_chunk_time = time.time()
+
+                for chunk in stream:
+                    current_time = time.time()
+                    # 检查 chunk 间超时（60秒无数据视为挂起）
+                    if current_time - last_chunk_time > 60:
+                        logger.warning(f"LLM 流式响应超时 (60秒无数据)")
+                        break
+                    last_chunk_time = current_time
+
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta.content:
+                            content_parts.append(delta.content)
+
+                    # 获取 usage 信息（最后一个 chunk 包含）
+                    if hasattr(chunk, 'usage') and chunk.usage:
+                        prompt_tokens = chunk.usage.prompt_tokens or 0
+                        completion_tokens = chunk.usage.completion_tokens or 0
+                        total_tokens = chunk.usage.total_tokens or 0
+
+                content = "".join(content_parts)
+                if content:
                     return LLMResponse(
                         success=True,
                         content=content,
-                        prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
-                        completion_tokens=response.usage.completion_tokens if response.usage else 0,
-                        total_tokens=response.usage.total_tokens if response.usage else 0,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
                     )
                 else:
                     logger.warning(f"LLM 返回空响应 (尝试 {attempt + 1}/{self.max_retries})")

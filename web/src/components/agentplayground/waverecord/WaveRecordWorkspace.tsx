@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Download, Plus, Loader2, FileDown, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive } from "lucide-react";
+import { Download, Plus, Loader2, FileDown, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
@@ -151,6 +151,7 @@ export function WaveRecordWorkspace() {
   const [deleting, setDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
   const paginatedJobs = jobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -338,6 +339,13 @@ export function WaveRecordWorkspace() {
               {t("agentPlayground.table.exportSelected")}{selectedCount > 0 ? ` (${selectedCount})` : ""}
             </Button>
             <Button
+              onClick={() => setBatchDialogOpen(true)}
+              className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]"
+            >
+              <Upload className="h-4 w-4" />
+              {t("agentPlayground.waveRecord.batchUpload")}
+            </Button>
+            <Button
               onClick={() => setDialogOpen(true)}
               className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]"
             >
@@ -380,10 +388,10 @@ export function WaveRecordWorkspace() {
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
                       {t("agentPlayground.waveRecord.table.device")}
                     </th>
-                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec] w-[140px] whitespace-nowrap">
                       {t("agentPlayground.waveRecord.table.status")}
                     </th>
-                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec] w-[180px] whitespace-nowrap">
                       {t("agentPlayground.waveRecord.table.createdAt")}
                     </th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
@@ -427,35 +435,40 @@ export function WaveRecordWorkspace() {
                         <td className="px-5 py-4 text-[#555]">
                           <span className="truncate max-w-[150px] block" title={job.device || "-"}>{job.device || "-"}</span>
                         </td>
-                        <td className="px-5 py-4">
-                          <div className="flex flex-col gap-2">
-                            <Badge className={cn("rounded-full px-2.5 py-1 font-medium w-fit", statusBadgeClass(job.status))}>
+                        <td className="px-5 py-4 w-[140px] max-w-[140px]">
+                          <div className="flex flex-col gap-2 overflow-hidden">
+                            <Badge className={cn("rounded-full px-2.5 py-1 font-medium w-fit whitespace-nowrap", statusBadgeClass(job.status))}>
                               {t(`agentPlayground.status.${job.status}`)}
                             </Badge>
                             {job.status === "processing" && job.progress > 0 && (
-                              <div className="flex flex-col gap-1 w-full max-w-[200px]">
+                              <div className="flex flex-col gap-1 w-full">
                                 <div className="h-2 bg-[#e8f0f0] rounded-full overflow-hidden">
                                   <div
                                     className="h-full bg-gradient-to-r from-[#298c88] to-[#00706b] transition-all duration-300"
                                     style={{ width: `${job.progress}%` }}
                                   />
                                 </div>
-                                <div className="flex justify-between items-center text-xs text-[#666]">
-                                  <span>{job.progress}%</span>
-                                  {job.progress_message && (
-                                    <span className="truncate ml-2">{job.progress_message}</span>
-                                  )}
-                                </div>
+                                <span className="text-xs text-[#666] whitespace-nowrap">{job.progress}%</span>
+                                {job.progress_message && (
+                                  <span className="text-xs text-[#298c88] truncate" title={job.progress_message}>
+                                    {job.progress_message}
+                                  </span>
+                                )}
                               </div>
                             )}
+                            {job.status === "queued" && job.progress_message && (
+                              <span className="text-xs text-[#298c88] truncate" title={job.progress_message}>
+                                {job.progress_message}
+                              </span>
+                            )}
                             {job.error_message && (
-                              <p className="mt-2 max-w-sm text-xs leading-5 text-[#cc3333]">
+                              <p className="text-xs leading-5 text-[#cc3333] whitespace-nowrap truncate" title={job.error_message}>
                                 {job.error_message}
                               </p>
                             )}
                           </div>
                         </td>
-                        <td className="px-5 py-4 text-[#555]">
+                        <td className="px-5 py-4 text-[#555] w-[180px] whitespace-nowrap">
                           {formatDateTime(job.created_at)}
                         </td>
                         <td className="px-5 py-4 w-[200px] min-w-[200px] max-w-[200px]">
@@ -610,6 +623,14 @@ export function WaveRecordWorkspace() {
           setJobs((prev) => [newJob, ...prev]);
         }}
         onPreview={openPreview}
+      />
+
+      <BatchUploadDialog
+        open={batchDialogOpen}
+        onOpenChange={setBatchDialogOpen}
+        onSuccess={(newJobs) => {
+          setJobs((prev) => [...newJobs, ...prev]);
+        }}
       />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -912,6 +933,234 @@ function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: Cr
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function parseStationDevice(fileName: string): { station: string; device: string } {
+  const name = fileName.replace(/\.zip$/i, "").trim();
+  if (!name) return { station: "", device: "" };
+  return { station: name, device: name };
+}
+
+interface BatchFileEntry {
+  file: File;
+  station: string;
+  device: string;
+  status: "pending" | "uploading" | "done" | "failed";
+  progress: number;
+  error?: string;
+  job?: WaveRecordJob;
+}
+
+interface BatchUploadDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: (jobs: WaveRecordJob[]) => void;
+}
+
+function BatchUploadDialog({ open, onOpenChange, onSuccess }: BatchUploadDialogProps) {
+  const { t } = useTranslation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [entries, setEntries] = useState<BatchFileEntry[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = event.target.files ? Array.from(event.target.files) : [];
+    const zipFiles = selectedFiles.filter((f) => f.name.toLowerCase().endsWith(".zip"));
+    if (zipFiles.length === 0 && selectedFiles.length > 0) {
+      toast.error("请选择 .zip 格式的压缩包");
+    }
+    const newEntries: BatchFileEntry[] = zipFiles.map((f) => {
+      const { station, device } = parseStationDevice(f.name);
+      return { file: f, station, device, status: "pending" as const, progress: 0 };
+    });
+    setEntries(newEntries);
+    if (event.target) event.target.value = "";
+  };
+
+  const updateEntry = (index: number, updates: Partial<BatchFileEntry>) => {
+    setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, ...updates } : e)));
+  };
+
+  const handleSubmit = async () => {
+    if (entries.length === 0) {
+      toast.error(t("agentPlayground.waveRecord.batchNoFiles"));
+      return;
+    }
+    setSubmitting(true);
+
+    const createdJobs: WaveRecordJob[] = [];
+
+    // Upload all files in parallel
+    await Promise.allSettled(
+      entries.map(async (entry, idx) => {
+        updateEntry(idx, { status: "uploading", progress: 0 });
+        try {
+          const job = await createJob(
+            [entry.file],
+            entry.station,
+            entry.device,
+            "line",
+            (_, progress) => updateEntry(idx, { progress }),
+          );
+          updateEntry(idx, { status: "done", progress: 100, job });
+          createdJobs.push(job);
+        } catch (err) {
+          updateEntry(idx, { status: "failed", error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    if (createdJobs.length > 0) {
+      onSuccess(createdJobs);
+      toast.success(`成功上传 ${createdJobs.length} 个文件`);
+    }
+    if (createdJobs.length === 0 && entries.length > 0) {
+      toast.error("所有文件上传失败");
+    }
+    setSubmitting(false);
+  };
+
+  const handleClose = () => {
+    if (!submitting) {
+      setEntries([]);
+      onOpenChange(false);
+    }
+  };
+
+  const allDone = entries.length > 0 && entries.every((e) => e.status === "done" || e.status === "failed");
+  const doneCount = entries.filter((e) => e.status === "done").length;
+  const failedCount = entries.filter((e) => e.status === "failed").length;
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="brand-display text-[#000]">
+            {t("agentPlayground.waveRecord.batchDialogTitle")}
+          </DialogTitle>
+          <DialogDescription className="leading-6 text-[#666]">
+            {t("agentPlayground.waveRecord.batchDialogDescription")}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".zip"
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={submitting}
+              className="border-[#84aca9] bg-[#f0f7fa] text-[#000] hover:bg-[#e0f0f0]"
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              选择文件
+            </Button>
+            {entries.length > 0 && (
+              <span className="text-sm text-[#555]">{entries.length} 个文件</span>
+            )}
+          </div>
+
+          {entries.length > 0 && (
+            <div className="max-h-[360px] overflow-auto rounded-lg border border-[#e0e0e0]">
+              <table className="w-full text-sm">
+                <thead className="bg-[#f0f7fa] sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2.5 text-left font-medium text-[#555] w-[55%]">
+                      {t("agentPlayground.waveRecord.batchStationDevice")}
+                    </th>
+                    <th className="px-3 py-2.5 text-left font-medium text-[#555] w-[15%]">
+                      {t("agentPlayground.waveRecord.batchSize")}
+                    </th>
+                    <th className="px-3 py-2.5 text-center font-medium text-[#555] w-[15%]">
+                      {t("agentPlayground.waveRecord.batchStatus")}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((entry, idx) => (
+                    <tr key={idx} className="border-t border-[#e8f0f0]">
+                      <td className="px-3 py-2 text-[#333] truncate max-w-[300px]" title={entry.file.name.replace(/\.zip$/i, "")}>
+                        {entry.file.name.replace(/\.zip$/i, "")}
+                      </td>
+                      <td className="px-3 py-2 text-[#888]">
+                        {(entry.file.size / 1024).toFixed(0)} KB
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {entry.status === "pending" && (
+                          <span className="text-xs text-[#888]">{t("agentPlayground.waveRecord.batchPending")}</span>
+                        )}
+                        {entry.status === "uploading" && (
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-xs text-[#00706b]">{entry.progress}%</span>
+                            <div className="w-full h-1.5 bg-[#e8f0f0] rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-[#298c88] transition-all duration-300"
+                                style={{ width: `${entry.progress}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {entry.status === "done" && (
+                          <span className="text-xs text-[#0d5d57]">{t("agentPlayground.waveRecord.batchDone")}</span>
+                        )}
+                        {entry.status === "failed" && (
+                          <span className="text-xs text-[#cc3333]" title={entry.error}>
+                            {t("agentPlayground.waveRecord.batchFailed")}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {allDone && (
+            <div className="rounded-md bg-[#f0f7fa] border border-[#84aca9] p-3 text-sm text-[#0d5d57]">
+              上传完成：成功 {doneCount} 个{failedCount > 0 ? `，失败 ${failedCount} 个` : ""}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleClose}
+            disabled={submitting}
+            className="border-[#e0e0e0] bg-white text-[#000] hover:bg-[#f5f5f5]"
+          >
+            {allDone ? t("agentPlayground.cancel") : t("agentPlayground.cancel")}
+          </Button>
+          {!allDone && (
+            <Button
+              onClick={handleSubmit}
+              disabled={submitting || entries.length === 0}
+              className="bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t("agentPlayground.waveRecord.uploading")}
+                </>
+              ) : (
+                t("agentPlayground.waveRecord.batchStartUpload")
+              )}
+            </Button>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

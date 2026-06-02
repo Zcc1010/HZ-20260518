@@ -26,6 +26,28 @@ def strip_code_fences(text: str) -> str:
     return text.strip()
 
 
+# 匹配 {xxx} 占位符，但排除正常的 Markdown 格式（如 **{text}**）和代码块中的内容
+_PLACEHOLDER_RE = re.compile(r'\{[^{}]{1,20}\}')
+
+
+def strip_placeholders(text: str) -> str:
+    """
+    清理 LLM 输出中未替换的模板占位符（如 {值}、{程序版本}）。
+    表格行中的占位符替换为 `-`，非表格行替换为 "未获取到数据"。
+    """
+    lines = text.split('\n')
+    result = []
+    for line in lines:
+        if _PLACEHOLDER_RE.search(line):
+            is_table_row = '|' in line and line.strip().startswith('|')
+            if is_table_row:
+                line = _PLACEHOLDER_RE.sub('-', line)
+            else:
+                line = _PLACEHOLDER_RE.sub('未获取到数据', line)
+        result.append(line)
+    return '\n'.join(result)
+
+
 def read_file_auto_encode(file_path: str) -> Optional[str]:
     """
     自动检测编码读取文件。UTF-8 优先，失败尝试 GB18030。
@@ -410,20 +432,37 @@ def generate_paragraph(
         set_number=device.set_number,
     )
 
-    # 调用 LLM
+    # 调用 LLM（带硬超时）
+    subagent_timeout_s = config.subagent_timeout if config else 120
+
     with monitor.track("subagent", device=device.label) as tracker:
-        response = llm_client.chat_completion(
-            messages=[{"role": "user", "content": prompt_text}],
-            model=llm_client.model,
-            max_tokens=config.subagent_max_tokens if config else 4096,
-        )
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+
+        def _call_llm():
+            return llm_client.chat_completion(
+                messages=[{"role": "user", "content": prompt_text}],
+                model=llm_client.model,
+                max_tokens=config.subagent_max_tokens if config else 4096,
+            )
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_call_llm)
+            try:
+                response = future.result(timeout=subagent_timeout_s)
+            except FutureTimeoutError:
+                logger.error(f"子 Agent LLM 调用超时 ({subagent_timeout_s}s): {device.label}")
+                return LLMResponse(
+                    success=False,
+                    error_message=f"子 Agent LLM 调用超时（{subagent_timeout_s}秒）: {device.label}",
+                )
+
         tracker.input_tokens = response.prompt_tokens
         tracker.output_tokens = response.completion_tokens
         tracker.total_tokens = response.total_tokens
 
     if response.success:
         # 保存段落（清理 code fence）
-        content = strip_code_fences(response.content)
+        content = strip_placeholders(strip_code_fences(response.content))
         para_dir = output_dir / "段落"
         para_dir.mkdir(parents=True, exist_ok=True)
         para_path = para_dir / f"{device.label}.md"
@@ -442,6 +481,7 @@ def generate_briefing(
 ) -> LLMResponse:
     """
     Step 8: 读取所有段落，生成完整简报。
+    当输出被截断时自动续写，最多 3 轮。
 
     Args:
         paragraphs_dir: 段落目录
@@ -453,6 +493,8 @@ def generate_briefing(
     Returns:
         LLMResponse
     """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+
     # 读取所有段落
     paragraphs = []
     for para_file in sorted(paragraphs_dir.glob("*.md")):
@@ -469,23 +511,74 @@ def generate_briefing(
     build_prompt = get_prompt_builder(device_type, "main_agent")
     prompt_text = build_prompt(paragraphs_content=all_paragraphs)
 
-    # 调用 LLM
-    with monitor.track("main_agent") as tracker:
-        response = llm_client.chat_completion(
-            messages=[{"role": "user", "content": prompt_text}],
-            model=llm_client.model,
-            max_tokens=config.main_agent_max_tokens if config else 16384,
-        )
-        tracker.input_tokens = response.prompt_tokens
-        tracker.output_tokens = response.completion_tokens
-        tracker.total_tokens = response.total_tokens
+    timeout_s = config.main_agent_timeout if config else 300
+    max_tokens = config.main_agent_max_tokens if config else 16384
+    TRUNCATION_THRESHOLD = max_tokens - 100  # 接近上限视为截断
+    MAX_CONTINUATIONS = 3
 
-    if response.success:
-        content = strip_code_fences(response.content)
-        briefing_path = output_dir / "跳闸简报.md"
-        briefing_path.write_text(content, encoding="utf-8")
+    all_content_parts: list[str] = []
+    total_input_tokens = 0
+    total_output_tokens = 0
 
-    return response
+    current_messages = [{"role": "user", "content": prompt_text}]
+
+    for round_idx in range(1 + MAX_CONTINUATIONS):
+        with monitor.track("main_agent" if round_idx == 0 else "main_agent_cont") as tracker:
+            def _call_llm(msgs=current_messages):
+                return llm_client.chat_completion(
+                    messages=msgs,
+                    model=llm_client.model,
+                    max_tokens=max_tokens,
+                )
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_call_llm)
+                try:
+                    response = future.result(timeout=timeout_s)
+                except FutureTimeoutError:
+                    logger.error(f"主 Agent LLM 调用超时 ({timeout_s}s)")
+                    return LLMResponse(
+                        success=False,
+                        error_message=f"主 Agent LLM 调用超时（{timeout_s}秒），请稍后重试",
+                    )
+
+            tracker.input_tokens = response.prompt_tokens
+            tracker.output_tokens = response.completion_tokens
+            tracker.total_tokens = response.total_tokens
+            total_input_tokens += response.prompt_tokens
+            total_output_tokens += response.completion_tokens
+
+        if not response.success:
+            # 前几轮失败但已有内容，继续保存
+            break
+
+        all_content_parts.append(response.content)
+
+        # 检查是否被截断
+        is_truncated = response.completion_tokens >= TRUNCATION_THRESHOLD
+        if not is_truncated or round_idx >= MAX_CONTINUATIONS:
+            break
+
+        # 被截断，发起续写
+        logger.warning(f"主 Agent 输出被截断 ({response.completion_tokens} tokens)，发起续写 (第 {round_idx + 1} 次)")
+        current_messages = [
+            {"role": "user", "content": prompt_text},
+            {"role": "assistant", "content": response.content},
+            {"role": "user", "content": "请继续输出上文未完成的内容，从断点处接着写，不要重复已有内容。"},
+        ]
+
+    # 合并所有内容
+    full_content = strip_placeholders(strip_code_fences("\n".join(all_content_parts)))
+    briefing_path = output_dir / "跳闸简报.md"
+    briefing_path.write_text(full_content, encoding="utf-8")
+
+    return LLMResponse(
+        success=True,
+        content=full_content,
+        prompt_tokens=total_input_tokens,
+        completion_tokens=total_output_tokens,
+        total_tokens=total_input_tokens + total_output_tokens,
+    )
 
 
 def run_pipeline(

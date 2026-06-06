@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import mimetypes
 import shutil
@@ -42,7 +43,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     device_type TEXT,
     progress INTEGER DEFAULT 0,
     progress_message TEXT,
-    evaluation TEXT
+    evaluation TEXT,
+    external_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_wave_jobs_created_at
@@ -207,6 +209,49 @@ def parse_hdr_file(hdr_path: Path) -> dict[str, Any]:
     return result
 
 
+# 设备类型映射：中文 → 英文
+_EQUIP_TYPE_MAP = {
+    "线路": "line",
+    "主变": "transformer",
+    "变压器": "transformer",
+    "母线": "bus",
+    "母差": "bus",
+}
+
+
+def parse_fault_event_md(md_path: Path) -> dict[str, str]:
+    """解析 _故障事件信息.md 文件，提取结构化字段。
+
+    返回 dict，包含 id, equipmentName, equipType 等字段。
+    """
+    result: dict[str, str] = {}
+    try:
+        text = md_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        try:
+            text = md_path.read_text(encoding="gb18030", errors="ignore")
+        except Exception:
+            return result
+
+    import re
+    # 匹配 Markdown 表格行: | key | value |（跳过分隔行 |---|---|）
+    for m in re.finditer(r"^\|\s*([^|\s]+)\s*\|\s*(.+?)\s*\|", text, re.MULTILINE):
+        key = m.group(1).strip()
+        value = m.group(2).strip()
+        if key and value:
+            result[key] = value
+
+    return result
+
+
+def _equip_type_to_device_type(equip_type: str) -> str:
+    """将中文设备类型转为英文 device_type。"""
+    for zh, en in _EQUIP_TYPE_MAP.items():
+        if zh in equip_type:
+            return en
+    return "line"
+
+
 def generate_analysis_report(job_root: Path, cfg_data: dict, hdr_data: dict) -> Path:
     """Generate analysis report in Markdown format."""
     report_path = job_root / "analysis_report.md"
@@ -368,6 +413,79 @@ def execute_job(app_root: Path, job_id: str, progress_callback: Any = None) -> P
     return report_path
 
 
+def _reorganize_flat_device_files(input_dir: Path, station_name: str) -> None:
+    """将扁平的装置文件自动组织到 保护录波/故障录波 目录结构中。
+
+    适配内层ZIP直接包含COMTRADE文件、无标准目录结构的情况。
+    文件名模式: {DEVICE}_RCD_{N}_{DATE}_{TIME}_{SEQ}_{TYPE}.EXT
+    - TYPE = F → 保护录波
+    - TYPE = S → 故障录波
+
+    每个内层ZIP代表一组录波数据，以ZIP文件名（去掉扩展名）作为目录名。
+    """
+    import re
+
+    DEVICE_FILE_EXTS = {".cfg", ".dat", ".hdr", ".rms.csv", ".events.csv", ".inf", ".ana", ".dmf", ".rpt"}
+    # 按ZIP来源分组：用文件名去掉扩展名作为key
+    zip_groups: dict[str, dict[str, Any]] = {}  # key: zip_base_name -> {type, device, files}
+
+    for f in sorted(input_dir.iterdir()):
+        if not f.is_file():
+            continue
+        # 匹配 {DEVICE}_RCD_{N}_{DATE}_{TIME}_{SEQ}_{TYPE}.EXT 模式
+        m = re.match(r'^(.+?_RCD_\d+_\d{8}_\d{6}_\d+_[FS])\.(.+)$', f.name, re.IGNORECASE)
+        if not m:
+            continue
+        base_name = m.group(1)  # e.g. SH11841A_RCD_742_20260213_035402_165_F
+        ext = f".{m.group(2)}".lower()
+        if ext not in DEVICE_FILE_EXTS and not f.name.lower().endswith(('.rms.csv', '.events.csv')):
+            continue
+        # 从 base_name 提取设备名和类型
+        dm = re.match(r'^(.+?)_RCD_\d+_\d{8}_\d{6}_\d+_([FS])$', base_name, re.IGNORECASE)
+        if not dm:
+            continue
+        device_name = dm.group(1)
+        file_type = dm.group(2).upper()
+        if base_name not in zip_groups:
+            zip_groups[base_name] = {"device": device_name, "type": file_type, "files": []}
+        zip_groups[base_name]["files"].append(f)
+
+    if not zip_groups:
+        return
+
+    # 推断厂站名：优先用包裹目录名，否则用 md 文件中的 equipmentName
+    station = station_name
+    if not station:
+        for f in input_dir.iterdir():
+            if f.is_file() and f.suffix.lower() == ".md" and "故障事件" in f.name:
+                meta = parse_fault_event_md(f)
+                station = meta.get("equipmentName", "")
+                break
+    if not station:
+        station = input_dir.name
+
+    print(f"[重组] 检测到 {len(zip_groups)} 组扁平装置文件，自动创建标准目录结构...", flush=True)
+
+    for base_name, info in zip_groups.items():
+        device_name = info["device"]
+        file_type = info["type"]
+        files = info["files"]
+
+        if file_type == "S":
+            # 故障录波: 故障录波/厂站/录波名/
+            target_dir = input_dir / "故障录波" / station / base_name
+        else:
+            # 保护录波: 保护录波/厂站/装置名/（装置名作为套别）
+            target_dir = input_dir / "保护录波" / station / device_name
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            dest = target_dir / f.name
+            if not dest.exists():
+                shutil.move(str(f), str(dest))
+        print(f"[重组] {file_type}: {base_name} -> {target_dir.relative_to(input_dir)}", flush=True)
+
+
 def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, progress_callback: Any = None) -> Path:
     """Execute trip_briefing pipeline for zip file.
 
@@ -472,6 +590,7 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
     # 这里检测并自动修正，最多向下查找 3 层
     from webui.trip_briefing.pipeline import _unwrap_single_child_dirs
     EXPECTED_DIRS = {"保护录波", "故障录波"}
+    wrapper_dir_name = ""  # 保存包裹目录名，用于后续推断厂站名
     for _depth in range(3):
         current_names = {p.name for p in input_dir.iterdir() if p.is_dir()}
         if current_names & EXPECTED_DIRS:
@@ -480,6 +599,7 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
         sub_dirs = [p for p in input_dir.iterdir() if p.is_dir()]
         if len(sub_dirs) == 1:
             wrapper = sub_dirs[0]
+            wrapper_dir_name = wrapper.name  # 保存包裹目录名（可能是厂站名）
             print(f"[解压] 检测到多余包裹目录: {wrapper.name}/，正在展开...", flush=True)
             # 将包裹目录内的所有内容移到 input_dir
             for item in wrapper.iterdir():
@@ -499,7 +619,14 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
     # 解压内层嵌套的 ZIP 文件（保护录波/故障录波目录下的装置 ZIP）
     from webui.trip_briefing.pipeline import _find_zip_files
     inner_zips = _find_zip_files(input_dir)
+    inner_zip_errors: list[str] = []
     for inner_zip in inner_zips:
+        # 跳过 0 字节的空文件
+        if inner_zip.stat().st_size == 0:
+            inner_zip_errors.append(f"{inner_zip.name}（文件为空，0字节）")
+            inner_zip.unlink()
+            print(f"[解压] 跳过空文件: {inner_zip.name}", flush=True)
+            continue
         target_dir = inner_zip.parent
         try:
             with zipfile.ZipFile(inner_zip, 'r') as zf:
@@ -509,7 +636,16 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
             inner_zip.unlink()  # 解压后删除内层 ZIP
             print(f"[解压] 内层ZIP: {inner_zip.name} -> {target_dir}", flush=True)
         except Exception as e:
+            inner_zip_errors.append(f"{inner_zip.name}（{e}）")
             print(f"[解压] 内层ZIP失败: {inner_zip.name}: {e}", flush=True)
+
+    # ── 兼容扁平内层ZIP结构 ──
+    # 如果解压后没有 保护录波/故障录波 目录，但存在扁平的装置文件，
+    # 自动按文件名模式分组并创建标准目录结构
+    has_protect_now = (input_dir / "保护录波").is_dir()
+    has_fault_now = (input_dir / "故障录波").is_dir()
+    if not has_protect_now and not has_fault_now:
+        _reorganize_flat_device_files(input_dir, wrapper_dir_name)
 
     # ── 验证 ZIP 内容结构 ──
     report_progress(20, "正在验证文件结构...")
@@ -521,9 +657,12 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
         # 列出实际目录帮助用户排查
         actual = [p.name for p in input_dir.iterdir() if p.is_dir()]
         actual_str = "、".join(actual[:10]) if actual else "（空）"
+        detail = ""
+        if inner_zip_errors:
+            detail = f"。内层压缩包解压失败：{'、'.join(inner_zip_errors[:5])}"
         raise ValueError(
             f"压缩包内未找到「保护录波」或「故障录波」目录。"
-            f"实际目录：{actual_str}。"
+            f"实际目录：{actual_str}{detail}。"
             f"请确认压缩包结构正确（应包含 保护录波/ 或 故障录波/ 目录）"
         )
 
@@ -750,6 +889,10 @@ class WaveRecordParserService:
                 conn.execute("ALTER TABLE jobs ADD COLUMN evaluation TEXT")
             except Exception:
                 pass  # Column already exists
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN external_id TEXT")
+            except Exception:
+                pass  # Column already exists
             conn.execute(
                 """
                 UPDATE jobs
@@ -812,6 +955,49 @@ class WaveRecordParserService:
             run_in_background=run_in_background,
         )
 
+    def create_job_from_directory(
+        self,
+        dir_path: str | Path,
+        *,
+        station: str | None = None,
+        device: str | None = None,
+        device_type: str | None = None,
+        created_by: str | None = None,
+        run_in_background: bool = True,
+    ) -> dict[str, Any]:
+        """从本地目录创建任务，自动读取 _故障事件信息.md 提取元数据。"""
+        dir_path = Path(dir_path).expanduser().resolve()
+        if not dir_path.is_dir():
+            raise FileNotFoundError(f"目录不存在: {dir_path}")
+
+        file_names: list[str] = []
+        file_bytes_list: list[bytes] = []
+
+        # 收集目录中的所有文件（递归子目录）
+        for f in sorted(dir_path.rglob("*")):
+            if f.is_file():
+                # 保留相对路径结构
+                try:
+                    rel = f.relative_to(dir_path)
+                    arc_name = str(rel).replace("\\", "/")
+                except ValueError:
+                    arc_name = f.name
+                file_names.append(arc_name)
+                file_bytes_list.append(f.read_bytes())
+
+        if not file_names:
+            raise FileNotFoundError(f"目录为空: {dir_path}")
+
+        return self._create_job_from_bytes(
+            file_names=file_names,
+            file_bytes_list=file_bytes_list,
+            station=station,
+            device=device,
+            device_type=device_type,
+            created_by=created_by,
+            run_in_background=run_in_background,
+        )
+
     def list_jobs(self) -> list[dict[str, Any]]:
         self.initialize()
         with connect(self.db_path) as conn:
@@ -835,7 +1021,8 @@ class WaveRecordParserService:
                     device_type,
                     progress,
                     progress_message,
-                    evaluation
+                    evaluation,
+                    external_id
                 FROM jobs
                 ORDER BY created_at DESC
                 """
@@ -865,11 +1052,48 @@ class WaveRecordParserService:
                     device_type,
                     progress,
                     progress_message,
-                    evaluation
+                    evaluation,
+                    external_id
                 FROM jobs
                 WHERE id = ?
                 """,
                 (job_id,),
+            ).fetchone()
+        raw = row_to_dict(row)
+        return self._serialize_job(raw) if raw else None
+
+    def get_job_by_external_id(self, external_id: str) -> dict[str, Any] | None:
+        """通过外部 ID 查询任务。"""
+        self.initialize()
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    id,
+                    status,
+                    created_at,
+                    updated_at,
+                    error_message,
+                    file_name,
+                    cfg_file_name,
+                    dat_file_name,
+                    hdr_file_name,
+                    result_file_name,
+                    result_relative_path,
+                    result_download_token,
+                    station,
+                    device,
+                    device_type,
+                    progress,
+                    progress_message,
+                    evaluation,
+                    external_id
+                FROM jobs
+                WHERE external_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (external_id,),
             ).fetchone()
         raw = row_to_dict(row)
         return self._serialize_job(raw) if raw else None
@@ -1045,6 +1269,7 @@ class WaveRecordParserService:
         device_type: str | None,
         created_by: str | None,
         run_in_background: bool,
+        external_id: str | None = None,
     ) -> dict[str, Any]:
         job_id = uuid.uuid4().hex
         job_root = self._job_root(job_id)
@@ -1058,6 +1283,7 @@ class WaveRecordParserService:
         zip_name = None
         primary_name = None
 
+        # 先写入所有文件
         for name, data in zip(file_names, file_bytes_list, strict=True):
             safe_name = self._safe_upload_name(name, "upload")
             dest = inputs_dir / safe_name
@@ -1076,6 +1302,47 @@ class WaveRecordParserService:
                 zip_name = safe_name
                 if primary_name is None:
                     primary_name = Path(safe_name).stem
+
+        # 检测 _故障事件信息.md 文件，自动提取元数据
+        md_meta: dict[str, str] = {}
+        for name, data in zip(file_names, file_bytes_list, strict=True):
+            safe_name = self._safe_upload_name(name, "upload")
+            if safe_name.endswith(".md") and "故障事件" in safe_name:
+                # 临时写入以便解析
+                tmp_md = inputs_dir / safe_name
+                md_meta = parse_fault_event_md(tmp_md)
+                break
+
+        # 如果上传文件中没有 md，尝试从 zip 内部提取
+        if not md_meta:
+            for name, data in zip(file_names, file_bytes_list, strict=True):
+                safe_name = self._safe_upload_name(name, "upload")
+                if not safe_name.lower().endswith(".zip"):
+                    continue
+                try:
+                    with zipfile.ZipFile(io.BytesIO(data), "r") as zf:
+                        for entry in zf.infolist():
+                            if entry.filename.endswith(".md") and "故障事件" in entry.filename:
+                                md_bytes = zf.read(entry)
+                                tmp_md = inputs_dir / Path(entry.filename).name
+                                tmp_md.write_bytes(md_bytes)
+                                md_meta = parse_fault_event_md(tmp_md)
+                                break
+                except Exception:
+                    pass
+                if md_meta:
+                    break
+
+        # 用 md 文件中的元数据补充 station/device/device_type/external_id
+        if md_meta:
+            if not external_id and md_meta.get("id"):
+                external_id = md_meta["id"]
+            if not station and md_meta.get("equipmentName"):
+                station = md_meta["equipmentName"]
+            if not device and md_meta.get("equipmentName"):
+                device = md_meta["equipmentName"]
+            if (not device_type or device_type == "line") and md_meta.get("equipType"):
+                device_type = _equip_type_to_device_type(md_meta["equipType"])
 
         if primary_name is None:
             primary_name = file_names[0] if file_names else "wave_record"
@@ -1110,6 +1377,7 @@ class WaveRecordParserService:
             device_type=device_type,
             created_by=created_by,
             run_in_background=run_in_background,
+            external_id=external_id,
         )
 
     def _persist_created_job(
@@ -1126,6 +1394,7 @@ class WaveRecordParserService:
         device_type: str | None,
         created_by: str | None,
         run_in_background: bool,
+        external_id: str | None = None,
     ) -> dict[str, Any]:
         self.initialize()
         now = utcnow_iso()
@@ -1145,11 +1414,12 @@ class WaveRecordParserService:
                     hdr_file_name,
                     station,
                     device,
-                    device_type
+                    device_type,
+                    external_id
                 )
-                VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (job_id, "queued", now, now, created_by, file_name, cfg_name, dat_name, hdr_name, station, device, device_type or "line"),
+                (job_id, "queued", now, now, created_by, file_name, cfg_name, dat_name, hdr_name, station, device, device_type or "line", external_id),
             )
 
         if run_in_background:
@@ -1290,6 +1560,7 @@ class WaveRecordParserService:
             "progress": row.get("progress") or 0,
             "progress_message": row.get("progress_message"),
             "evaluation": row.get("evaluation") or "",
+            "external_id": row.get("external_id") or "",
         }
 
     def get_export_files(self, job_ids: list[str]) -> list[tuple[Path, str]]:
@@ -1326,7 +1597,8 @@ class WaveRecordParserService:
                     id, status, created_at, updated_at, error_message, file_name,
                     cfg_file_name, dat_file_name, hdr_file_name,
                     result_file_name, result_relative_path, result_download_token,
-                    station, device, device_type, progress, progress_message, evaluation
+                    station, device, device_type, progress, progress_message, evaluation,
+                    external_id
                 FROM jobs WHERE id = ?
                 """,
                 (job_id,),

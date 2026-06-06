@@ -13,6 +13,7 @@ from webui.api.deps import get_services
 from webui.api.gateway import ServiceContainer
 from webui.api.models import WaveRecordJobInfo
 from webui.api.routes.agentplayground import ensure_agentplayground_enabled
+from webui.services.agentplayground.db import connect
 from webui.services.agentplayground.paths import default_wave_record_parser_app_root
 from webui.services.wave_record_parser.service import WaveRecordParserService
 
@@ -82,6 +83,7 @@ class CompleteUploadRequest(BaseModel):
     station: str = ""
     device: str = ""
     device_type: str = "line"
+    external_id: str = ""
 
 
 class UpdateWaveRecordJobRequest(BaseModel):
@@ -135,6 +137,14 @@ async def complete_chunked_upload(
         created_by="authless-public",
         run_in_background=True,
     )
+    # 如果请求中带有 external_id，更新任务
+    if body.external_id:
+        with connect(service.db_path) as conn:
+            conn.execute(
+                "UPDATE jobs SET external_id = ? WHERE id = ?",
+                (body.external_id, job["id"]),
+            )
+        job["external_id"] = body.external_id
     return WaveRecordJobInfo(**job)
 
 
@@ -168,6 +178,49 @@ async def export_wave_record_jobs(
         media_type="application/zip",
         headers={"Content-Disposition": 'attachment; filename="trip_briefings.zip"'},
     )
+
+
+@router.get("/jobs/by-external-id/{external_id}", response_model=WaveRecordJobInfo)
+async def get_job_by_external_id(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    external_id: str,
+) -> WaveRecordJobInfo:
+    """通过外部系统 ID 查询任务。"""
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+    job = service.get_job_by_external_id(external_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return WaveRecordJobInfo(**job)
+
+
+class CreateFromDirectoryRequest(BaseModel):
+    dir_path: str
+    station: str = ""
+    device: str = ""
+    device_type: str = "line"
+
+
+@router.post("/jobs/from-directory", response_model=WaveRecordJobInfo)
+async def create_job_from_directory(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    body: CreateFromDirectoryRequest,
+) -> WaveRecordJobInfo:
+    """从本地目录创建任务，自动读取 _故障事件信息.md 提取元数据。"""
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+    try:
+        job = service.create_job_from_directory(
+            dir_path=body.dir_path,
+            station=body.station,
+            device=body.device,
+            device_type=body.device_type,
+            created_by="authless-public",
+            run_in_background=True,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return WaveRecordJobInfo(**job)
 
 
 @router.patch("/jobs/{job_id}", response_model=WaveRecordJobInfo)

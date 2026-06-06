@@ -407,3 +407,4 @@ class WaveRecordJobInfo(BaseModel):
     progress: int = 0
     progress_message: str | None = None
     evaluation: str = ""
+    external_id: str = ""

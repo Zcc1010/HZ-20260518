@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, Plus, Loader2, FileDown, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, Upload, Zap } from "lucide-react";
+import { Download, Plus, Loader2, FileDown, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, Upload, Zap, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
@@ -25,6 +25,7 @@ interface WaveRecordJob {
   progress: number;
   progress_message?: string;
   evaluation?: string;
+  external_id?: string;
 }
 
 function formatDateTime(isoString: string): string {
@@ -154,9 +155,16 @@ export function WaveRecordWorkspace() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [stationFilter, setStationFilter] = useState("");
+  const [deviceFilter, setDeviceFilter] = useState("");
 
-  const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
-  const paginatedJobs = jobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const filteredJobs = jobs.filter((j) => {
+    if (stationFilter && !(j.station || "").toLowerCase().includes(stationFilter.toLowerCase())) return false;
+    if (deviceFilter && !(j.device || "").toLowerCase().includes(deviceFilter.toLowerCase())) return false;
+    return true;
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / PAGE_SIZE));
+  const paginatedJobs = filteredJobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   useEffect(() => {
     fetchJobs()
@@ -357,6 +365,45 @@ export function WaveRecordWorkspace() {
           </div>
         </div>
 
+        {/* 筛选栏 */}
+        {!loading && !error && jobs.length > 0 && (
+          <div className="flex items-center gap-3 mt-3">
+            <div className="relative flex-1 max-w-[240px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#888]" />
+              <input
+                type="text"
+                value={stationFilter}
+                onChange={(e) => { setStationFilter(e.target.value); setCurrentPage(1); }}
+                placeholder="筛选厂站..."
+                className="w-full h-9 pl-9 pr-3 rounded-lg border border-[#e0e0e0] bg-white text-sm text-[#333] placeholder:text-[#aaa] focus:outline-none focus:border-[#298c88] focus:ring-1 focus:ring-[#298c88]/30"
+              />
+            </div>
+            <div className="relative flex-1 max-w-[240px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#888]" />
+              <input
+                type="text"
+                value={deviceFilter}
+                onChange={(e) => { setDeviceFilter(e.target.value); setCurrentPage(1); }}
+                placeholder="筛选装置..."
+                className="w-full h-9 pl-9 pr-3 rounded-lg border border-[#e0e0e0] bg-white text-sm text-[#333] placeholder:text-[#aaa] focus:outline-none focus:border-[#298c88] focus:ring-1 focus:ring-[#298c88]/30"
+              />
+            </div>
+            {(stationFilter || deviceFilter) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setStationFilter(""); setDeviceFilter(""); setCurrentPage(1); }}
+                className="text-[#888] hover:text-[#333] h-9 px-3"
+              >
+                清除
+              </Button>
+            )}
+            <span className="text-xs text-[#888] ml-auto">
+              {filteredJobs.length} / {jobs.length} 条
+            </span>
+          </div>
+        )}
+
         {loading && (
           <div className="flex items-center justify-center py-10 text-[#666]">
             <Loader2 className="h-6 w-6 animate-spin" />
@@ -371,7 +418,7 @@ export function WaveRecordWorkspace() {
         )}
 
         {!loading && !error && (
-          <div className="rounded-[28px] border border-[#e0e0e0] bg-white shadow-md overflow-hidden flex flex-col" style={{ height: "calc(100vh - 200px)" }}>
+          <div className="rounded-[28px] border border-[#e0e0e0] bg-white shadow-md overflow-hidden flex flex-col" style={{ height: "calc(100vh - 252px)" }}>
             <div className="flex-1 overflow-auto">
               <table className="w-full text-sm border-separate border-spacing-0" style={{ minWidth: 800 }}>
                 <thead className="bg-[#0d5d57] sticky top-0 z-10">
@@ -411,7 +458,7 @@ export function WaveRecordWorkspace() {
                   {paginatedJobs.length === 0 ? (
                     <tr>
                       <td className="px-5 py-10 text-sm text-[#888] text-center" colSpan={8}>
-                        {t("agentPlayground.noJobs")}
+                        {stationFilter || deviceFilter ? "没有匹配的任务" : t("agentPlayground.noJobs")}
                       </td>
                     </tr>
                   ) : (
@@ -540,7 +587,7 @@ export function WaveRecordWorkspace() {
                             {job.status === "completed" && job.preview_url && (
                               <button
                                 type="button"
-                                onClick={() => navigate(`/trip-briefing/${job.id}`)}
+                                onClick={() => navigate(`/trip-briefing/${job.external_id || job.id}`)}
                                 className="inline-flex items-center text-[#298c88] hover:text-[#0d5d57] transition-colors"
                                 title="跳闸简报"
                               >
@@ -569,7 +616,7 @@ export function WaveRecordWorkspace() {
             {jobs.length > 0 && (
               <div className="flex items-center justify-between border-t border-[#e8f0f0] bg-[#f0f7fa]/50 px-5 py-3">
                 <p className="text-xs text-[#666]">
-                  共 {jobs.length} 条记录，第 {currentPage}/{totalPages} 页
+                  共 {filteredJobs.length} 条记录，第 {currentPage}/{totalPages} 页
                 </p>
                 <div className="flex items-center gap-1">
                   <button
@@ -960,6 +1007,7 @@ function parseStationDevice(fileName: string): { station: string; device: string
 
 interface BatchFileEntry {
   file: File;
+  mdFile?: File;
   station: string;
   device: string;
   status: "pending" | "uploading" | "done" | "failed";
@@ -983,12 +1031,28 @@ function BatchUploadDialog({ open, onOpenChange, onSuccess }: BatchUploadDialogP
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = event.target.files ? Array.from(event.target.files) : [];
     const zipFiles = selectedFiles.filter((f) => f.name.toLowerCase().endsWith(".zip"));
+    const mdFiles = selectedFiles.filter((f) => f.name.toLowerCase().endsWith(".md"));
     if (zipFiles.length === 0 && selectedFiles.length > 0) {
       toast.error("请选择 .zip 格式的压缩包");
     }
+
+    // 尝试将 md 文件匹配到同目录的 zip 文件
+    // webkitRelativePath 格式: "目录名/文件名"
+    const mdByDir = new Map<string, File>();
+    for (const md of mdFiles) {
+      const dir = md.webkitRelativePath ? md.webkitRelativePath.split("/").slice(0, -1).join("/") : "";
+      if (dir) mdByDir.set(dir, md);
+    }
+
     const newEntries: BatchFileEntry[] = zipFiles.map((f) => {
       const { station, device } = parseStationDevice(f.name);
-      return { file: f, station, device, status: "pending" as const, progress: 0 };
+      // 尝试通过 webkitRelativePath 匹配 md 文件
+      let matchedMd: File | undefined;
+      if (f.webkitRelativePath) {
+        const dir = f.webkitRelativePath.split("/").slice(0, -1).join("/");
+        matchedMd = mdByDir.get(dir);
+      }
+      return { file: f, mdFile: matchedMd, station, device, status: "pending" as const, progress: 0 };
     });
     setEntries(newEntries);
     if (event.target) event.target.value = "";
@@ -1012,13 +1076,30 @@ function BatchUploadDialog({ open, onOpenChange, onSuccess }: BatchUploadDialogP
       entries.map(async (entry, idx) => {
         updateEntry(idx, { status: "uploading", progress: 0 });
         try {
-          const job = await createJob(
-            [entry.file],
-            entry.station,
-            entry.device,
-            "line",
-            (_, progress) => updateEntry(idx, { progress }),
-          );
+          let job: WaveRecordJob;
+          if (entry.mdFile) {
+            // 有 md 文件时，使用直接上传接口（支持多文件）
+            const formData = new FormData();
+            formData.append("files", entry.file);
+            formData.append("files", entry.mdFile);
+            formData.append("station", entry.station);
+            formData.append("device", entry.device);
+            formData.append("device_type", "line");
+            const res = await fetch(withBasePath("/api/wave-record-parser/jobs"), {
+              method: "POST",
+              body: formData,
+            });
+            if (!res.ok) throw new Error("上传失败");
+            job = await res.json();
+          } else {
+            job = await createJob(
+              [entry.file],
+              entry.station,
+              entry.device,
+              "line",
+              (_, progress) => updateEntry(idx, { progress }),
+            );
+          }
           updateEntry(idx, { status: "done", progress: 100, job });
           createdJobs.push(job);
         } catch (err) {
@@ -1065,7 +1146,7 @@ function BatchUploadDialog({ open, onOpenChange, onSuccess }: BatchUploadDialogP
             <input
               ref={fileInputRef}
               type="file"
-              accept=".zip"
+              accept=".zip,.md"
               multiple
               className="hidden"
               onChange={handleFileChange}

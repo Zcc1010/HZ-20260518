@@ -40,6 +40,7 @@ interface WaveRecordJob {
   progress: number;
   progress_message?: string;
   evaluation?: string;
+  external_id?: string;
 }
 
 function formatDateTime(isoString: string): string {

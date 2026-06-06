@@ -29,13 +29,25 @@ interface WaveRecordJob {
   preview_url?: string;
   station?: string;
   device?: string;
+  external_id?: string;
 }
 
-async function fetchJob(jobId: string): Promise<WaveRecordJob> {
+async function fetchJob(jobIdOrExternalId: string): Promise<WaveRecordJob> {
+  // 先尝试通过 external_id 查询
+  try {
+    const res = await fetch(withBasePath(`/api/wave-record-parser/jobs/by-external-id/${encodeURIComponent(jobIdOrExternalId)}`));
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    // ignore
+  }
+
+  // 回退：查询所有任务，按内部 id 匹配
   const res = await fetch(withBasePath("/api/wave-record-parser/jobs"));
   if (!res.ok) throw new Error("Failed to fetch jobs");
   const jobs: WaveRecordJob[] = await res.json();
-  const job = jobs.find((j) => j.id === jobId);
+  const job = jobs.find((j) => j.id === jobIdOrExternalId || j.external_id === jobIdOrExternalId);
   if (!job) throw new Error("未找到该跳闸简报");
   return job;
 }

@@ -14,6 +14,7 @@ const CronJobs = lazy(() => import("./pages/CronJobs"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Users = lazy(() => import("./pages/Users"));
 const SystemConfig = lazy(() => import("./pages/SystemConfig"));
+const TripBriefingPage = lazy(() => import("./pages/TripBriefingPage"));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token, authlessEnabled } = useAuthStore((s) => ({
@@ -184,6 +185,10 @@ export default function App() {
       <Route
         path="agentplayground/:appId"
         element={<AgentPlayground />}
+      />
+      <Route
+        path="trip-briefing/:jobId"
+        element={<TripBriefingPage />}
       />
       <Route path="*" element={<Navigate to={defaultPrivatePath} replace />} />
     </Routes>

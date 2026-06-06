@@ -556,6 +556,10 @@
       "settingCheck": {
         "title": "定值校核",
         "description": "上传定值单和计算书，自动校核并生成报告。"
+      },
+      "tripBriefing": {
+        "title": "跳闸简报",
+        "description": "查看跳闸简报并与 AI 对话分析故障原因。"
       }
     },
     "waveRecord": {

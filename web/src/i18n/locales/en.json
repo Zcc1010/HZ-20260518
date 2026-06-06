@@ -552,6 +552,10 @@
       "settingCheck": {
         "title": "Setting Check",
         "description": "Upload setting sheets and calculation documents to verify and generate reports."
+      },
+      "tripBriefing": {
+        "title": "Trip Briefing",
+        "description": "View trip briefings and chat with AI to analyze fault causes."
       }
     },
     "waveRecord": {

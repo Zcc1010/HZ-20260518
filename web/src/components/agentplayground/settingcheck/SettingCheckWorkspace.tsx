@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { Download, Plus, Loader2, FileDown, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, Upload, Zap } from "lucide-react";
+import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, FileDown, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
@@ -9,19 +8,19 @@ import { cn } from "../../../lib/utils";
 import { withBasePath } from "../../../lib/basePath";
 import { MarkdownRenderer } from "../../shared/MarkdownRenderer";
 
-interface WaveRecordJob {
+interface SettingCheckJob {
   id: string;
-  app_id: string;
   status: "queued" | "processing" | "completed" | "failed";
   created_at: string;
   updated_at: string;
   error_message?: string;
-  file_name: string;
+  station: string;
+  device: string;
+  setting_files: string[];
+  calc_file: string;
   result_file_name?: string;
   download_url?: string;
   preview_url?: string;
-  station?: string;
-  device?: string;
   progress: number;
   progress_message?: string;
   evaluation?: string;
@@ -44,7 +43,7 @@ function formatDateTime(isoString: string): string {
   }
 }
 
-function statusBadgeClass(status: WaveRecordJob["status"]) {
+function statusBadgeClass(status: SettingCheckJob["status"]) {
   if (status === "completed") {
     return "bg-[#dcecec] text-[#0d5d57] hover:bg-[#dcecec]";
   }
@@ -57,89 +56,20 @@ function statusBadgeClass(status: WaveRecordJob["status"]) {
   return "bg-[#f5f5f5] text-[#888] hover:bg-[#f5f5f5]";
 }
 
-async function fetchJobs(): Promise<WaveRecordJob[]> {
-  const response = await fetch(withBasePath("/api/wave-record-parser/jobs"));
+async function fetchJobs(): Promise<SettingCheckJob[]> {
+  const response = await fetch(withBasePath("/api/setting-check/jobs"));
   if (!response.ok) {
     throw new Error("Failed to fetch jobs");
   }
   return response.json();
 }
 
-const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB
-
-async function createJob(
-  files: File[],
-  station: string,
-  device: string,
-  deviceType: string,
-  onProgress?: (fileIndex: number, fileProgress: number) => void,
-): Promise<WaveRecordJob> {
-  // Only one zip file is expected, but handle the first zip
-  const zipFile = files.find((f) => f.name.toLowerCase().endsWith(".zip"));
-  if (!zipFile) throw new Error("No zip file found");
-
-  const totalChunks = Math.ceil(zipFile.size / CHUNK_SIZE);
-
-  // Step 1: Init upload
-  const initRes = await fetch(withBasePath("/api/wave-record-parser/uploads/init"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      file_name: zipFile.name,
-      total_size: zipFile.size,
-      total_chunks: totalChunks,
-    }),
-  });
-  if (!initRes.ok) {
-    throw new Error("Failed to initialize upload");
-  }
-  const { upload_id } = await initRes.json();
-
-  // Step 2: Upload chunks
-  for (let i = 0; i < totalChunks; i++) {
-    const start = i * CHUNK_SIZE;
-    const end = Math.min(start + CHUNK_SIZE, zipFile.size);
-    const chunk = zipFile.slice(start, end);
-
-    const formData = new FormData();
-    formData.append("chunk", chunk, zipFile.name);
-
-    const chunkRes = await fetch(
-      withBasePath(`/api/wave-record-parser/uploads/${upload_id}/chunks/${i}`),
-      { method: "POST", body: formData },
-    );
-    if (!chunkRes.ok) {
-      throw new Error(`Failed to upload chunk ${i + 1}/${totalChunks}`);
-    }
-
-    if (onProgress) {
-      onProgress(0, Math.round(((i + 1) / totalChunks) * 100));
-    }
-  }
-
-  // Step 3: Complete upload and create job
-  const completeRes = await fetch(
-    withBasePath(`/api/wave-record-parser/uploads/${upload_id}/complete`),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ station, device, device_type: deviceType }),
-    },
-  );
-  if (!completeRes.ok) {
-    const error = await completeRes.text();
-    throw new Error(error || "Failed to complete upload");
-  }
-  return completeRes.json();
-}
-
 const PAGE_SIZE = 20;
 
-export function WaveRecordWorkspace() {
+export function SettingCheckWorkspace() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [jobs, setJobs] = useState<WaveRecordJob[]>([]);
+  const [jobs, setJobs] = useState<SettingCheckJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -149,11 +79,10 @@ export function WaveRecordWorkspace() {
   const [previewTitle, setPreviewTitle] = useState("");
   const [previewContent, setPreviewContent] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<WaveRecordJob | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SettingCheckJob | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
-  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
   const paginatedJobs = jobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -170,14 +99,12 @@ export function WaveRecordWorkspace() {
       });
   }, []);
 
-  // 确保当前页不超出范围
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
   }, [jobs.length, totalPages, currentPage]);
 
-  // 清理已删除任务的选中状态
   useEffect(() => {
     const jobIds = new Set(jobs.map((j) => j.id));
     setSelectedIds((prev) => {
@@ -199,7 +126,7 @@ export function WaveRecordWorkspace() {
 
   const saveEvaluation = async (jobId: string, value: string) => {
     try {
-      const res = await fetch(withBasePath(`/api/wave-record-parser/jobs/${jobId}`), {
+      const res = await fetch(withBasePath(`/api/setting-check/jobs/${jobId}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ evaluation: value }),
@@ -224,7 +151,6 @@ export function WaveRecordWorkspace() {
       if (res.ok) {
         const data = await res.json();
         let text = (data.content || "").replace(/\r\n/g, "\n");
-        // Strip LLM preamble + ```markdown code block wrapper
         const fenceIdx = text.indexOf("```markdown\n");
         if (fenceIdx !== -1) {
           text = text.slice(fenceIdx + 12);
@@ -249,7 +175,7 @@ export function WaveRecordWorkspace() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const res = await fetch(withBasePath(`/api/wave-record-parser/jobs/${deleteTarget.id}`), { method: "DELETE" });
+      const res = await fetch(withBasePath(`/api/setting-check/jobs/${deleteTarget.id}`), { method: "DELETE" });
       if (res.ok) {
         setJobs((prev) => prev.filter((j) => j.id !== deleteTarget.id));
         setDeleteTarget(null);
@@ -295,7 +221,7 @@ export function WaveRecordWorkspace() {
     }
     setExporting(true);
     try {
-      const res = await fetch(withBasePath("/api/wave-record-parser/jobs/export"), {
+      const res = await fetch(withBasePath("/api/setting-check/jobs/export"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_ids: ids }),
@@ -305,7 +231,7 @@ export function WaveRecordWorkspace() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "跳闸简报导出.zip";
+        a.download = "定值校核报告导出.zip";
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -327,7 +253,7 @@ export function WaveRecordWorkspace() {
               {t("agentPlayground.title")}
             </p>
             <h2 className="brand-display mt-2 text-2xl text-[#000]">
-              {t("agentPlayground.apps.waveRecordParser.title")}
+              {t("agentPlayground.apps.settingCheck.title")}
             </h2>
           </div>
 
@@ -339,13 +265,6 @@ export function WaveRecordWorkspace() {
             >
               {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileArchive className="h-4 w-4" />}
               {t("agentPlayground.table.exportSelected")}{selectedCount > 0 ? ` (${selectedCount})` : ""}
-            </Button>
-            <Button
-              onClick={() => setBatchDialogOpen(true)}
-              className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]"
-            >
-              <Upload className="h-4 w-4" />
-              {t("agentPlayground.waveRecord.batchUpload")}
             </Button>
             <Button
               onClick={() => setDialogOpen(true)}
@@ -373,7 +292,7 @@ export function WaveRecordWorkspace() {
         {!loading && !error && (
           <div className="rounded-[28px] border border-[#e0e0e0] bg-white shadow-md overflow-hidden flex flex-col" style={{ height: "calc(100vh - 200px)" }}>
             <div className="flex-1 overflow-auto">
-              <table className="w-full text-sm border-separate border-spacing-0" style={{ minWidth: 800 }}>
+              <table className="w-full text-sm border-separate border-spacing-0" style={{ minWidth: 700 }}>
                 <thead className="bg-[#0d5d57] sticky top-0 z-10">
                   <tr className="border-b border-[#e8f0f0]">
                     <th className="px-3 py-4 text-center w-[40px]">
@@ -385,19 +304,19 @@ export function WaveRecordWorkspace() {
                       />
                     </th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
-                      {t("agentPlayground.waveRecord.table.station")}
+                      {t("agentPlayground.settingCheck.table.station")}
                     </th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
-                      {t("agentPlayground.waveRecord.table.device")}
-                    </th>
-                    <th className="px-5 py-4 text-left font-medium text-[#dcecec] w-[140px] whitespace-nowrap">
-                      {t("agentPlayground.waveRecord.table.status")}
-                    </th>
-                    <th className="px-5 py-4 text-left font-medium text-[#dcecec] w-[180px] whitespace-nowrap">
-                      {t("agentPlayground.waveRecord.table.createdAt")}
+                      {t("agentPlayground.settingCheck.table.deviceName")}
                     </th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
-                      {t("agentPlayground.waveRecord.table.evaluation")}
+                      {t("agentPlayground.settingCheck.table.status")}
+                    </th>
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
+                      {t("agentPlayground.settingCheck.table.createdAt")}
+                    </th>
+                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
+                      {t("agentPlayground.settingCheck.table.evaluation")}
                     </th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
                       {t("agentPlayground.table.download")}
@@ -437,40 +356,35 @@ export function WaveRecordWorkspace() {
                         <td className="px-5 py-4 text-[#555]">
                           <span className="truncate max-w-[150px] block" title={job.device || "-"}>{job.device || "-"}</span>
                         </td>
-                        <td className="px-5 py-4 w-[140px] max-w-[140px]">
-                          <div className="flex flex-col gap-2 overflow-hidden">
-                            <Badge className={cn("rounded-full px-2.5 py-1 font-medium w-fit whitespace-nowrap", statusBadgeClass(job.status))}>
+                        <td className="px-5 py-4">
+                          <div className="flex flex-col gap-2">
+                            <Badge className={cn("rounded-full px-2.5 py-1 font-medium w-fit", statusBadgeClass(job.status))}>
                               {t(`agentPlayground.status.${job.status}`)}
                             </Badge>
                             {job.status === "processing" && job.progress > 0 && (
-                              <div className="flex flex-col gap-1 w-full">
+                              <div className="flex flex-col gap-1 w-full max-w-[200px]">
                                 <div className="h-2 bg-[#e8f0f0] rounded-full overflow-hidden">
                                   <div
                                     className="h-full bg-gradient-to-r from-[#298c88] to-[#00706b] transition-all duration-300"
                                     style={{ width: `${job.progress}%` }}
                                   />
                                 </div>
-                                <span className="text-xs text-[#666] whitespace-nowrap">{job.progress}%</span>
-                                {job.progress_message && (
-                                  <span className="text-xs text-[#298c88] truncate" title={job.progress_message}>
-                                    {job.progress_message}
-                                  </span>
-                                )}
+                                <div className="flex justify-between items-center text-xs text-[#666]">
+                                  <span>{job.progress}%</span>
+                                  {job.progress_message && (
+                                    <span className="truncate ml-2">{job.progress_message}</span>
+                                  )}
+                                </div>
                               </div>
                             )}
-                            {job.status === "queued" && job.progress_message && (
-                              <span className="text-xs text-[#298c88] truncate" title={job.progress_message}>
-                                {job.progress_message}
-                              </span>
-                            )}
                             {job.error_message && (
-                              <p className="text-xs leading-5 text-[#cc3333] whitespace-nowrap truncate" title={job.error_message}>
+                              <p className="mt-2 max-w-sm text-xs leading-5 text-[#cc3333]">
                                 {job.error_message}
                               </p>
                             )}
                           </div>
                         </td>
-                        <td className="px-5 py-4 text-[#555] w-[180px] whitespace-nowrap">
+                        <td className="px-5 py-4 text-[#555]">
                           {formatDateTime(job.created_at)}
                         </td>
                         <td className="px-5 py-4 w-[200px] min-w-[200px] max-w-[200px]">
@@ -497,10 +411,10 @@ export function WaveRecordWorkspace() {
                                 setEditValue(job.evaluation || "");
                               }}
                               className="w-[200px] min-h-[28px] cursor-pointer whitespace-pre-wrap break-words rounded px-1 py-0.5 text-sm text-[#555] hover:bg-[#f0f7fa]"
-                              title={job.evaluation || t("agentPlayground.waveRecord.table.evaluationPlaceholder")}
+                              title={job.evaluation || t("agentPlayground.settingCheck.table.evaluationPlaceholder")}
                             >
                               {job.evaluation || (
-                                <span className="text-[#bbb]">{t("agentPlayground.waveRecord.table.evaluationPlaceholder")}</span>
+                                <span className="text-[#bbb]">{t("agentPlayground.settingCheck.table.evaluationPlaceholder")}</span>
                               )}
                             </div>
                           )}
@@ -521,9 +435,9 @@ export function WaveRecordWorkspace() {
                               {job.preview_url && (
                                 <button
                                   type="button"
-                                  onClick={() => openPreview(job.preview_url!, job.file_name)}
+                                  onClick={() => openPreview(job.preview_url!, job.station || "定值校核报告")}
                                   className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors shrink-0"
-                                  title={t("agentPlayground.waveRecord.preview")}
+                                  title={t("agentPlayground.settingCheck.preview")}
                                 >
                                   <Eye className="h-4 w-4" />
                                 </button>
@@ -535,27 +449,15 @@ export function WaveRecordWorkspace() {
                             </span>
                           )}
                         </td>
-                        <td className="px-5 py-4 w-[100px]">
-                          <div className="flex items-center gap-2">
-                            {job.status === "completed" && job.preview_url && (
-                              <button
-                                type="button"
-                                onClick={() => navigate(`/trip-briefing/${job.id}`)}
-                                className="inline-flex items-center text-[#298c88] hover:text-[#0d5d57] transition-colors"
-                                title="跳闸简报"
-                              >
-                                <Zap className="h-4 w-4" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget(job)}
-                              className="inline-flex items-center text-[#999] hover:text-[#d44] transition-colors"
-                              title={t("agentPlayground.table.delete")}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
+                        <td className="px-5 py-4 w-[80px]">
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(job)}
+                            className="inline-flex items-center text-[#999] hover:text-[#d44] transition-colors"
+                            title={t("agentPlayground.table.delete")}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </td>
                       </tr>
                       );
@@ -565,7 +467,6 @@ export function WaveRecordWorkspace() {
               </table>
             </div>
 
-            {/* 分页控件 */}
             {jobs.length > 0 && (
               <div className="flex items-center justify-between border-t border-[#e8f0f0] bg-[#f0f7fa]/50 px-5 py-3">
                 <p className="text-xs text-[#666]">
@@ -630,21 +531,13 @@ export function WaveRecordWorkspace() {
         )}
       </div>
 
-      <CreateWaveRecordDialog
+      <CreateSettingCheckDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={(newJob) => {
           setJobs((prev) => [newJob, ...prev]);
         }}
         onPreview={openPreview}
-      />
-
-      <BatchUploadDialog
-        open={batchDialogOpen}
-        onOpenChange={setBatchDialogOpen}
-        onSuccess={(newJobs) => {
-          setJobs((prev) => [...newJobs, ...prev]);
-        }}
       />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -671,7 +564,7 @@ export function WaveRecordWorkspace() {
             <DialogTitle className="text-[#000]">{t("agentPlayground.table.deleteConfirmTitle")}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-[#555]">
-            {t("agentPlayground.table.deleteConfirmMessage", { name: deleteTarget?.file_name ?? "" })}
+            {t("agentPlayground.table.deleteConfirmMessage", { name: deleteTarget?.station || deleteTarget?.id || "" })}
           </p>
           <DialogFooter>
             <Button
@@ -706,50 +599,120 @@ import {
 } from "../../ui/dialog";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../ui/select";
 
-interface CreateWaveRecordDialogProps {
+interface CreateSettingCheckDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: (job: WaveRecordJob) => void;
+  onSuccess: (job: SettingCheckJob) => void;
   onPreview: (url: string, title: string) => void;
 }
 
-function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: CreateWaveRecordDialogProps) {
+const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB
+
+// 支持的文件格式
+const SETTING_FILE_EXTENSIONS = [".xls", ".xlsx", ".doc", ".docx", ".pdf", ".txt", ".md"];
+const CALC_FILE_EXTENSIONS = [".doc", ".docx", ".pdf", ".txt", ".md", ".xls", ".xlsx"];
+
+function hasExtension(filename: string, extensions: string[]): boolean {
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
+  return extensions.includes(ext);
+}
+
+async function uploadFile(
+  file: File,
+  onProgress?: (progress: number) => void,
+): Promise<string> {
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+  const initRes = await fetch(withBasePath("/api/setting-check/uploads/init"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file_name: file.name,
+      total_size: file.size,
+      total_chunks: totalChunks,
+    }),
+  });
+  if (!initRes.ok) throw new Error("Failed to initialize upload");
+  const { upload_id } = await initRes.json();
+
+  for (let j = 0; j < totalChunks; j++) {
+    const start = j * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const chunk = file.slice(start, end);
+
+    const formData = new FormData();
+    formData.append("chunk", chunk, file.name);
+
+    const chunkRes = await fetch(
+      withBasePath(`/api/setting-check/uploads/${upload_id}/chunks/${j}`),
+      { method: "POST", body: formData },
+    );
+    if (!chunkRes.ok) throw new Error(`Failed to upload chunk ${j + 1}/${totalChunks}`);
+
+    if (onProgress) {
+      onProgress(Math.round(((j + 1) / totalChunks) * 100));
+    }
+  }
+
+  return upload_id;
+}
+
+async function createJob(
+  settingUploadIds: string[],
+  calcUploadIds: string[],
+  station: string,
+  device: string,
+): Promise<SettingCheckJob> {
+  const completeRes = await fetch(
+    withBasePath("/api/setting-check/uploads/complete"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        station,
+        device,
+        setting_upload_ids: settingUploadIds,
+        calc_upload_ids: calcUploadIds,
+      }),
+    },
+  );
+  if (!completeRes.ok) {
+    const error = await completeRes.text();
+    throw new Error(error || "Failed to complete upload");
+  }
+  return completeRes.json();
+}
+
+function CreateSettingCheckDialog({ open, onOpenChange, onSuccess, onPreview }: CreateSettingCheckDialogProps) {
   const { t } = useTranslation();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<File[]>([]);
+  const settingInputRef = useRef<HTMLInputElement>(null);
+  const calcInputRef = useRef<HTMLInputElement>(null);
+  const [settingFiles, setSettingFiles] = useState<File[]>([]);
+  const [calcFiles, setCalcFiles] = useState<File[]>([]);
   const [station, setStation] = useState<string>("");
   const [device, setDevice] = useState<string>("");
-  const [deviceType, setDeviceType] = useState<string>("line");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadingFileIndex, setUploadingFileIndex] = useState<string>("");
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!station) {
-      setError(t("agentPlayground.waveRecord.stationRequired"));
+      setError(t("agentPlayground.settingCheck.stationRequired"));
       return;
     }
     if (!device) {
-      setError(t("agentPlayground.waveRecord.deviceRequired"));
+      setError(t("agentPlayground.settingCheck.deviceRequired"));
       return;
     }
-    if (files.length === 0) {
-      setError(t("agentPlayground.waveRecord.selectFileRequired"));
+    if (settingFiles.length === 0) {
+      setError(t("agentPlayground.settingCheck.settingFilesRequired"));
       return;
     }
-
-    const hasZip = files.some((f) => f.name.toLowerCase().endsWith(".zip"));
-    if (!hasZip) {
-      setError(t("agentPlayground.waveRecord.zipRequired"));
+    if (calcFiles.length === 0) {
+      setError(t("agentPlayground.settingCheck.calcFilesRequired"));
       return;
     }
 
@@ -758,26 +721,84 @@ function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: Cr
     setUploadProgress(0);
 
     try {
-      const job = await createJob(files, station, device, deviceType, (_, progress) => {
-        setUploadProgress(progress);
-      });
+      // Upload all setting files
+      const settingUploadIds: string[] = [];
+      for (let i = 0; i < settingFiles.length; i++) {
+        const file = settingFiles[i];
+        setUploadingFileIndex(`定值单 ${i + 1}/${settingFiles.length}: ${file.name}`);
+        const uploadId = await uploadFile(file, (progress) => {
+          const totalFiles = settingFiles.length + calcFiles.length;
+          const baseProgress = (i / totalFiles) * 100;
+          setUploadProgress(Math.round(baseProgress + (progress / totalFiles)));
+        });
+        settingUploadIds.push(uploadId);
+      }
+
+      // Upload all calc files
+      const calcUploadIds: string[] = [];
+      for (let i = 0; i < calcFiles.length; i++) {
+        const file = calcFiles[i];
+        setUploadingFileIndex(`计算书 ${i + 1}/${calcFiles.length}: ${file.name}`);
+        const uploadId = await uploadFile(file, (progress) => {
+          const totalFiles = settingFiles.length + calcFiles.length;
+          const baseProgress = ((settingFiles.length + i) / totalFiles) * 100;
+          setUploadProgress(Math.round(baseProgress + (progress / totalFiles)));
+        });
+        calcUploadIds.push(uploadId);
+      }
+
+      setUploadingFileIndex("正在创建任务...");
+      const job = await createJob(settingUploadIds, calcUploadIds, station, device);
       onSuccess(job);
       onOpenChange(false);
-      setFiles([]);
+      setSettingFiles([]);
+      setCalcFiles([]);
       setStation("");
       setDevice("");
-      setDeviceType("line");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
+      setUploadingFileIndex("");
     }
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = event.target.files ? Array.from(event.target.files) : [];
-    setFiles(selectedFiles);
-    setError(null);
+  const handleSettingFilesChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    const validFiles = files.filter(f => hasExtension(f.name, SETTING_FILE_EXTENSIONS));
+    if (validFiles.length !== files.length) {
+      setError(t("agentPlayground.settingCheck.invalidSettingFileType"));
+    } else {
+      setError(null);
+    }
+    setSettingFiles(validFiles);
+    event.target.value = "";
+  };
+
+  const handleCalcFilesChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    const validFiles = files.filter(f => hasExtension(f.name, CALC_FILE_EXTENSIONS));
+    if (validFiles.length !== files.length) {
+      setError(t("agentPlayground.settingCheck.invalidCalcFileType"));
+    } else {
+      setError(null);
+    }
+    setCalcFiles(validFiles);
+    event.target.value = "";
+  };
+
+  const removeSettingFile = (index: number) => {
+    setSettingFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removeCalcFile = (index: number) => {
+    setCalcFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
@@ -785,116 +806,158 @@ function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: Cr
       <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="brand-display text-[#000]">
-            {t("agentPlayground.waveRecord.createDialogTitle")}
+            {t("agentPlayground.settingCheck.createDialogTitle")}
           </DialogTitle>
           <DialogDescription className="leading-6 text-[#666]">
-            {t("agentPlayground.waveRecord.createDialogDescription")}
+            {t("agentPlayground.settingCheck.createDialogDescription")}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="station" className="text-[#298c88]">
-                {t("agentPlayground.waveRecord.station")} <span className="text-red-500">*</span>
+                {t("agentPlayground.settingCheck.station")} <span className="text-red-500">*</span>
               </Label>
               <Input
                 id="station"
                 type="text"
                 value={station}
                 onChange={(e) => setStation(e.target.value)}
-                placeholder={t("agentPlayground.waveRecord.stationPlaceholder")}
+                placeholder={t("agentPlayground.settingCheck.stationPlaceholder")}
                 className="bg-[#f0f7fa] border-[#84aca9] text-[#000]"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="device" className="text-[#298c88]">
-                {t("agentPlayground.waveRecord.device")} <span className="text-red-500">*</span>
+                {t("agentPlayground.settingCheck.deviceName")} <span className="text-red-500">*</span>
               </Label>
               <Input
                 id="device"
                 type="text"
                 value={device}
                 onChange={(e) => setDevice(e.target.value)}
-                placeholder={t("agentPlayground.waveRecord.devicePlaceholder")}
+                placeholder={t("agentPlayground.settingCheck.deviceNamePlaceholder")}
                 className="bg-[#f0f7fa] border-[#84aca9] text-[#000]"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="device-type" className="text-[#298c88]">
-                {t("agentPlayground.waveRecord.deviceType")} <span className="text-red-500">*</span>
-              </Label>
-              <Select value={deviceType} onValueChange={setDeviceType}>
-                <SelectTrigger className="bg-[#f0f7fa] border-[#84aca9] text-[#000]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-white border-[#e0e0e0]">
-                  <SelectItem value="line" className="text-[#000] hover:bg-[#f0f7fa]">
-                    {t("agentPlayground.waveRecord.deviceTypeLine")}
-                  </SelectItem>
-                  <SelectItem value="transformer" className="text-[#000] hover:bg-[#f0f7fa]">
-                    {t("agentPlayground.waveRecord.deviceTypeTransformer")}
-                  </SelectItem>
-                  <SelectItem value="bus" className="text-[#000] hover:bg-[#f0f7fa]">
-                    {t("agentPlayground.waveRecord.deviceTypeBus")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
+          {/* 定值单文件上传 */}
           <div className="space-y-2">
             <Label className="text-[#298c88]">
-              {t("agentPlayground.waveRecord.files")}
+              {t("agentPlayground.settingCheck.settingFiles")} <span className="text-red-500">*</span>
             </Label>
             <div className="flex items-center gap-3">
               <input
-                ref={fileInputRef}
+                ref={settingInputRef}
                 type="file"
-                accept=".zip"
+                multiple
+                accept={SETTING_FILE_EXTENSIONS.join(",")}
                 className="hidden"
-                onChange={handleFileChange}
+                onChange={handleSettingFilesChange}
               />
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => settingInputRef.current?.click()}
                 className="border-[#84aca9] bg-[#f0f7fa] text-[#000] hover:bg-[#e0f0f0]"
               >
                 <Plus className="h-4 w-4 mr-1.5" />
-                选择文件
+                {t("agentPlayground.settingCheck.selectFiles")}
               </Button>
-              {files.length > 0 ? (
-                <span className="text-sm text-[#555] truncate">
-                  {files[0].name} ({(files[0].size / 1024).toFixed(1)} KB)
-                </span>
-              ) : (
-                <span className="text-sm text-[#888]">未选择文件</span>
-              )}
-            </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="text-[#888]">
-                {t("agentPlayground.waveRecord.zipFileHint")}
+              <span className="text-xs text-[#888]">
+                {t("agentPlayground.settingCheck.settingFilesHint")}
               </span>
-              <div className="flex items-center gap-2 ml-1">
-                <span className="text-sm text-[#555]">录波文件上传手册</span>
-                <a
-                  href={withBasePath("/assets/录波文件上传手册.md")}
-                  download
-                  className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors"
-                  title="下载手册"
-                >
-                  <FileDown className="h-3.5 w-3.5" />
-                </a>
-                <button
-                  type="button"
-                  onClick={() => onPreview("/assets/录波文件上传手册.md", "录波文件上传手册")}
-                  className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors"
-                  title="预览手册"
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                </button>
+            </div>
+            {settingFiles.length > 0 && (
+              <div className="space-y-1 mt-2">
+                {settingFiles.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between bg-[#f0f7fa] rounded px-2 py-1">
+                    <span className="text-sm text-[#555] truncate flex-1">
+                      {file.name} ({formatFileSize(file.size)})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeSettingFile(index)}
+                      className="text-[#999] hover:text-[#d44] transition-colors ml-2"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
               </div>
+            )}
+          </div>
+
+          {/* 计算书文件上传 */}
+          <div className="space-y-2">
+            <Label className="text-[#298c88]">
+              {t("agentPlayground.settingCheck.calcFiles")} <span className="text-red-500">*</span>
+            </Label>
+            <div className="flex items-center gap-3">
+              <input
+                ref={calcInputRef}
+                type="file"
+                multiple
+                accept={CALC_FILE_EXTENSIONS.join(",")}
+                className="hidden"
+                onChange={handleCalcFilesChange}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => calcInputRef.current?.click()}
+                className="border-[#84aca9] bg-[#f0f7fa] text-[#000] hover:bg-[#e0f0f0]"
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                {t("agentPlayground.settingCheck.selectFiles")}
+              </Button>
+              <span className="text-xs text-[#888]">
+                {t("agentPlayground.settingCheck.calcFilesHint")}
+              </span>
+            </div>
+            {calcFiles.length > 0 && (
+              <div className="space-y-1 mt-2">
+                {calcFiles.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between bg-[#f0f7fa] rounded px-2 py-1">
+                    <span className="text-sm text-[#555] truncate flex-1">
+                      {file.name} ({formatFileSize(file.size)})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeCalcFile(index)}
+                      className="text-[#999] hover:text-[#d44] transition-colors ml-2"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 手册链接 */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-[#888]">{t("agentPlayground.settingCheck.uploadHint")}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-[#555]">{t("agentPlayground.settingCheck.uploadManual")}</span>
+              <a
+                href={withBasePath("/assets/定值校核上传手册.md")}
+                download
+                className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors"
+                title={t("agentPlayground.settingCheck.downloadManual")}
+              >
+                <FileDown className="h-3.5 w-3.5" />
+              </a>
+              <button
+                type="button"
+                onClick={() => onPreview("/assets/定值校核上传手册.md", t("agentPlayground.settingCheck.uploadManual"))}
+                className="inline-flex items-center text-[#00706b] hover:text-[#298c88] transition-colors"
+                title={t("agentPlayground.settingCheck.previewManual")}
+              >
+                <Eye className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
 
@@ -907,7 +970,7 @@ function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: Cr
           {submitting && (
             <div className="space-y-2">
               <div className="flex justify-between text-xs text-[#666]">
-                <span>{t("agentPlayground.waveRecord.uploading")}</span>
+                <span>{uploadingFileIndex || t("agentPlayground.settingCheck.uploading")}</span>
                 <span>{uploadProgress}%</span>
               </div>
               <div className="h-2 bg-[#e8f0f0] rounded-full overflow-hidden">
@@ -938,243 +1001,15 @@ function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: Cr
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {uploadProgress < 100
-                    ? t("agentPlayground.waveRecord.uploading")
-                    : t("agentPlayground.waveRecord.processing")}
+                    ? t("agentPlayground.settingCheck.uploading")
+                    : t("agentPlayground.settingCheck.processing")}
                 </>
               ) : (
-                t("agentPlayground.waveRecord.startParse")
+                t("agentPlayground.settingCheck.startCheck")
               )}
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function parseStationDevice(fileName: string): { station: string; device: string } {
-  const name = fileName.replace(/\.zip$/i, "").trim();
-  if (!name) return { station: "", device: "" };
-  return { station: name, device: name };
-}
-
-interface BatchFileEntry {
-  file: File;
-  station: string;
-  device: string;
-  status: "pending" | "uploading" | "done" | "failed";
-  progress: number;
-  error?: string;
-  job?: WaveRecordJob;
-}
-
-interface BatchUploadDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSuccess: (jobs: WaveRecordJob[]) => void;
-}
-
-function BatchUploadDialog({ open, onOpenChange, onSuccess }: BatchUploadDialogProps) {
-  const { t } = useTranslation();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [entries, setEntries] = useState<BatchFileEntry[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = event.target.files ? Array.from(event.target.files) : [];
-    const zipFiles = selectedFiles.filter((f) => f.name.toLowerCase().endsWith(".zip"));
-    if (zipFiles.length === 0 && selectedFiles.length > 0) {
-      toast.error("请选择 .zip 格式的压缩包");
-    }
-    const newEntries: BatchFileEntry[] = zipFiles.map((f) => {
-      const { station, device } = parseStationDevice(f.name);
-      return { file: f, station, device, status: "pending" as const, progress: 0 };
-    });
-    setEntries(newEntries);
-    if (event.target) event.target.value = "";
-  };
-
-  const updateEntry = (index: number, updates: Partial<BatchFileEntry>) => {
-    setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, ...updates } : e)));
-  };
-
-  const handleSubmit = async () => {
-    if (entries.length === 0) {
-      toast.error(t("agentPlayground.waveRecord.batchNoFiles"));
-      return;
-    }
-    setSubmitting(true);
-
-    const createdJobs: WaveRecordJob[] = [];
-
-    // Upload all files in parallel
-    await Promise.allSettled(
-      entries.map(async (entry, idx) => {
-        updateEntry(idx, { status: "uploading", progress: 0 });
-        try {
-          const job = await createJob(
-            [entry.file],
-            entry.station,
-            entry.device,
-            "line",
-            (_, progress) => updateEntry(idx, { progress }),
-          );
-          updateEntry(idx, { status: "done", progress: 100, job });
-          createdJobs.push(job);
-        } catch (err) {
-          updateEntry(idx, { status: "failed", error: err instanceof Error ? err.message : String(err) });
-        }
-      }),
-    );
-
-    if (createdJobs.length > 0) {
-      onSuccess(createdJobs);
-      toast.success(`成功上传 ${createdJobs.length} 个文件`);
-    }
-    if (createdJobs.length === 0 && entries.length > 0) {
-      toast.error("所有文件上传失败");
-    }
-    setSubmitting(false);
-  };
-
-  const handleClose = () => {
-    if (!submitting) {
-      setEntries([]);
-      onOpenChange(false);
-    }
-  };
-
-  const allDone = entries.length > 0 && entries.every((e) => e.status === "done" || e.status === "failed");
-  const doneCount = entries.filter((e) => e.status === "done").length;
-  const failedCount = entries.filter((e) => e.status === "failed").length;
-
-  return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="brand-display text-[#000]">
-            {t("agentPlayground.waveRecord.batchDialogTitle")}
-          </DialogTitle>
-          <DialogDescription className="leading-6 text-[#666]">
-            {t("agentPlayground.waveRecord.batchDialogDescription")}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".zip"
-              multiple
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={submitting}
-              className="border-[#84aca9] bg-[#f0f7fa] text-[#000] hover:bg-[#e0f0f0]"
-            >
-              <Plus className="h-4 w-4 mr-1.5" />
-              选择文件
-            </Button>
-            {entries.length > 0 && (
-              <span className="text-sm text-[#555]">{entries.length} 个文件</span>
-            )}
-          </div>
-
-          {entries.length > 0 && (
-            <div className="max-h-[360px] overflow-auto rounded-lg border border-[#e0e0e0]">
-              <table className="w-full text-sm">
-                <thead className="bg-[#f0f7fa] sticky top-0">
-                  <tr>
-                    <th className="px-3 py-2.5 text-left font-medium text-[#555] w-[55%]">
-                      {t("agentPlayground.waveRecord.batchStationDevice")}
-                    </th>
-                    <th className="px-3 py-2.5 text-left font-medium text-[#555] w-[15%]">
-                      {t("agentPlayground.waveRecord.batchSize")}
-                    </th>
-                    <th className="px-3 py-2.5 text-center font-medium text-[#555] w-[15%]">
-                      {t("agentPlayground.waveRecord.batchStatus")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map((entry, idx) => (
-                    <tr key={idx} className="border-t border-[#e8f0f0]">
-                      <td className="px-3 py-2 text-[#333] truncate max-w-[300px]" title={entry.file.name.replace(/\.zip$/i, "")}>
-                        {entry.file.name.replace(/\.zip$/i, "")}
-                      </td>
-                      <td className="px-3 py-2 text-[#888]">
-                        {(entry.file.size / 1024).toFixed(0)} KB
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {entry.status === "pending" && (
-                          <span className="text-xs text-[#888]">{t("agentPlayground.waveRecord.batchPending")}</span>
-                        )}
-                        {entry.status === "uploading" && (
-                          <div className="flex flex-col items-center gap-1">
-                            <span className="text-xs text-[#00706b]">{entry.progress}%</span>
-                            <div className="w-full h-1.5 bg-[#e8f0f0] rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-[#298c88] transition-all duration-300"
-                                style={{ width: `${entry.progress}%` }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                        {entry.status === "done" && (
-                          <span className="text-xs text-[#0d5d57]">{t("agentPlayground.waveRecord.batchDone")}</span>
-                        )}
-                        {entry.status === "failed" && (
-                          <span className="text-xs text-[#cc3333]" title={entry.error}>
-                            {t("agentPlayground.waveRecord.batchFailed")}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {allDone && (
-            <div className="rounded-md bg-[#f0f7fa] border border-[#84aca9] p-3 text-sm text-[#0d5d57]">
-              上传完成：成功 {doneCount} 个{failedCount > 0 ? `，失败 ${failedCount} 个` : ""}
-            </div>
-          )}
-        </div>
-
-        <DialogFooter className="gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleClose}
-            disabled={submitting}
-            className="border-[#e0e0e0] bg-white text-[#000] hover:bg-[#f5f5f5]"
-          >
-            {allDone ? t("agentPlayground.cancel") : t("agentPlayground.cancel")}
-          </Button>
-          {!allDone && (
-            <Button
-              onClick={handleSubmit}
-              disabled={submitting || entries.length === 0}
-              className="bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]"
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t("agentPlayground.waveRecord.uploading")}
-                </>
-              ) : (
-                t("agentPlayground.waveRecord.batchStartUpload")
-              )}
-            </Button>
-          )}
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

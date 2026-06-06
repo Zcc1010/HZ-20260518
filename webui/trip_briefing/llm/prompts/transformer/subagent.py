@@ -15,6 +15,12 @@ def build_subagent_prompt(
 
 给定本套主变保护装置的录波文件（hdr + rms.csv + events.csv），按 HDR/Events/RMS 三个区块提取本套装置的关键信息，生成标准化的 Markdown 段落。
 
+## 核心原则（必须遵守）
+
+1. **严禁编造数据**：所有数据必须来自输入文件，不得凭空推测或编造。无数据时标注 `[无数据]`。
+2. **数据溯源**：关键数据必须标注来源文件和字段名。
+3. **保留原始值**：提取的数据必须与源文件一致，不得修改或"修正"原始数值。
+
 ## 设备信息
 
 - 厂站: {station}
@@ -113,7 +119,7 @@ def build_subagent_prompt(
 
 1. 厂站名和套别：{station}_{set_number}
 - **严禁输出相对时间**（如 `0ms`、`15ms`），所有时间必须为绝对时间 `HH:MM:SS.mmm`
-2. 装置型号：从 HDR `<DeviceInfo>` 提取，根据型号后缀判断智能站/常规站
+2. 装置型号：从 HDR `<DeviceInfo>` 提取，根据型号后缀判断智能站/常规站（含 FA/DA/DG → 智能站，其他 → 常规站）
 3. 故障时间：从 HDR `<FaultStartTime>` 提取
 4. TripInfo：从 HDR `<TripInfo>` 提取，偏移量转绝对时间
 5. DigitalEvent：从 HDR `<DigitalEvent>` 提取

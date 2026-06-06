@@ -16,6 +16,13 @@ def build_subagent_prompt(
 
 给定故障录波器的录波文件（hdr + rms.csv + events.csv），按 HDR/Events/RMS 三个区块提取关键信息，生成标准化的 Markdown 段落。
 
+## 核心原则（必须遵守）
+
+1. **严禁编造数据**：所有数据必须来自输入文件，不得凭空推测或编造。无数据时标注 `[无数据]`。
+2. **数据溯源**：关键数据必须标注来源文件和字段名。
+3. **保留原始值**：提取的数据必须与源文件一致，不得修改或"修正"原始数值。
+4. **只提取故障设备相关内容**，忽略其他线路/设备的数据。
+
 ## 设备信息
 
 - 厂站: {station}
@@ -53,9 +60,42 @@ def build_subagent_prompt(
 （如果 HDR 有内容：正常列出设备信息、TripInfo、FaultInfo、定值信息）
 （如果 HDR 缺失或内容为空：只写 `[HDR文件缺失]`，不要展开子字段）
 
+**HDR FaultInfo 提取字段**（全部从 HDR 中提取）:
+- faultTime: 故障起始时间
+- station: 厂站名
+- recorderName: 录波器名称
+- primaryDevice: 故障设备名称（线路名）
+- faultPhase: 故障相别（如AN=A相接地）
+- tripPhase: 跳闸相别
+- faultPhaseVoltage: 故障相电压（HDR中的值+单位）
+- faultPhaseCurrent: 故障相电流（HDR中的值+单位）
+- maxFaultCurrent: 最大故障电流
+- zeroVoltage: 零序/N相电压
+- faultDistance: 故障测距（注意：0.00也是有效数据，必须如实填写）
+- faultImpedance: 故障阻抗
+- faultType: 瞬时故障/永久故障（从HDR"故障性质"字段取）
+- isInsideZone: 区内/区外故障
+- reclosingStatus: 重合闸情况（从HDR"重合闸是否成功"取）
+- switchAction: 开关动作情况
+- ctRatio: CT变比
+- ptRatio: PT变比
+
+**TripInfo**（从HDR提取，将value=1的作为动作事件，value=0的作为返回事件，配对输出）:
+
+| 动作名称 | 动作时间 | 相别 | 持续时间(ms) |
+|----------|----------|------|-------------|
+
 ### Events信息
 | 绝对时间 | 通道名称 | 内容 |
 |----------|----------|------|
+
+**数字量信号事件（故障设备相关）**:
+- 保护启动信号、保护动作信号、开关跳闸/位置信号、重合闸信号
+- 去除"收"信号、告警信号
+- 只取包含故障设备名称关键词的信号通道
+
+| 通道名称 | 动作时间 | 返回时间 | 持续时间(ms) |
+|----------|----------|----------|-------------|
 
 ### RMS信息
 **电流RMS最大值**（一次值）: IA: {{一次值}}kA（二次值{{值}}A）, IB: ..., IC: ..., 3I0: ...
@@ -88,6 +128,7 @@ def build_subagent_prompt(
 8. CT变比和PT变比：从 HDR `<SettingValue>` 提取 CT一次额定值/CT二次额定值/PT一次额定值（**不从 CFG 提取**）
 9. FaultInfo：从 HDR `<FaultInfo>` 提取故障相电流、故障相电压，全部换算为一次值
 10. 一次值换算：电流一次值(kA) = 二次值(A) × CT一次额定值 / CT二次额定值 / 1000；无变比时标注 [无CT变比]
+11. 数值型字段必须忠实于原始数据，即使值为0也要如实填写，不得省略或替换
 
 ## 错误处理
 - 文件缺失：标注`[录波文件缺失]`

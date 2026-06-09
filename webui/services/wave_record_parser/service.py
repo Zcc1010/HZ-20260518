@@ -413,6 +413,47 @@ def execute_job(app_root: Path, job_id: str, progress_callback: Any = None) -> P
     return report_path
 
 
+def _reorganize_flat_subdir(subdir: Path) -> None:
+    """将子目录下扁平的装置文件按设备名分组到子子目录中。
+
+    适配内层ZIP解压后文件直接放在保护录波/或故障录波/下、无厂站/套别层级的情况。
+    文件名模式: {DEVICE}_RCD_{N}_{DATE}_{TIME}_{SEQ}_{TYPE}.EXT
+    """
+    import re
+
+    DEVICE_FILE_EXTS = {".cfg", ".dat", ".hdr", ".rms.csv", ".events.csv", ".inf", ".ana", ".dmf", ".rpt", ".des", ".mid"}
+    groups: dict[str, list[Path]] = {}  # device_name -> [files]
+
+    for f in sorted(subdir.iterdir()):
+        if not f.is_file():
+            continue
+        ext = f.suffix.lower()
+        is_device_file = ext in DEVICE_FILE_EXTS or f.name.lower().endswith(('.rms.csv', '.events.csv'))
+        if not is_device_file:
+            continue
+        # 尝试从文件名提取设备名
+        m = re.match(r'^(.+?)_RCD_\d+_\d{8}_\d{6}_\d+_[FS]', f.stem, re.IGNORECASE)
+        if m:
+            device_name = m.group(1)
+        else:
+            # 其他模式：用第一个下划线前的部分，或整个文件名去掉扩展名
+            device_name = f.stem.split('_')[0] if '_' in f.stem else f.stem
+        groups.setdefault(device_name, []).append(f)
+
+    if not groups:
+        return
+
+    print(f"[重组] {subdir.name}: 检测到 {len(groups)} 组扁平装置文件，自动创建子目录...", flush=True)
+    for device_name, files in groups.items():
+        target_dir = subdir / device_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            dest = target_dir / f.name
+            if not dest.exists():
+                shutil.move(str(f), str(dest))
+        print(f"[重组] {device_name}: {len(files)} 个文件 -> {target_dir.relative_to(subdir.parent)}", flush=True)
+
+
 def _reorganize_flat_device_files(input_dir: Path, station_name: str) -> None:
     """将扁平的装置文件自动组织到 保护录波/故障录波 目录结构中。
 
@@ -647,6 +688,31 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
     if not has_protect_now and not has_fault_now:
         _reorganize_flat_device_files(input_dir, wrapper_dir_name)
 
+    # ── 目录名规范化 ──
+    # 兼容 "故障录波器录波" 等非标准目录名，重命名为标准名
+    for d in list(input_dir.iterdir()):
+        if not d.is_dir():
+            continue
+        name = d.name
+        if "故障录波" in name and name != "故障录波":
+            dest = input_dir / "故障录波"
+            if not dest.exists():
+                d.rename(dest)
+                print(f"[规范化] {name} -> 故障录波", flush=True)
+        elif "保护录波" in name and name != "保护录波":
+            dest = input_dir / "保护录波"
+            if not dest.exists():
+                d.rename(dest)
+                print(f"[规范化] {name} -> 保护录波", flush=True)
+
+    # ── 扁平子目录重组 ──
+    # 内层ZIP解压后文件可能直接放在保护录波/或故障录波/下（无厂站/套别层级），
+    # 按设备名自动分组到子目录中
+    for subdir_name in ("保护录波", "故障录波"):
+        subdir = input_dir / subdir_name
+        if subdir.is_dir():
+            _reorganize_flat_subdir(subdir)
+
     # ── 验证 ZIP 内容结构 ──
     report_progress(20, "正在验证文件结构...")
 
@@ -672,18 +738,29 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
     if has_protect:
         devices = scan_devices(input_dir, sub_dir="保护录波")
         if not devices:
-            # 列出一级子目录帮助排查
+            # 兼容 .ZWAV 等非标准压缩包（后续 prepare_work_dir 会解压）
             protect_dir = input_dir / "保护录波"
-            sub_names = [p.name for p in protect_dir.iterdir() if p.is_dir()]
-            sub_str = "、".join(sub_names[:10]) if sub_names else "（空）"
-            errors.append(f"「保护录波」目录下未找到有效的装置文件（子目录：{sub_str}）")
+            has_zwav = any(
+                f.is_file() and f.suffix.lower() in (".zwav", ".zip")
+                for f in protect_dir.rglob("*")
+            )
+            if not has_zwav:
+                sub_names = [p.name for p in protect_dir.iterdir() if p.is_dir()]
+                sub_str = "、".join(sub_names[:10]) if sub_names else "（空）"
+                errors.append(f"「保护录波」目录下未找到有效的装置文件（子目录：{sub_str}）")
     if has_fault:
         devices = scan_devices(input_dir, sub_dir="故障录波")
         if not devices:
+            # 兼容 .ZWAV 等非标准压缩包
             fault_dir = input_dir / "故障录波"
-            sub_names = [p.name for p in fault_dir.iterdir() if p.is_dir()]
-            sub_str = "、".join(sub_names[:10]) if sub_names else "（空）"
-            errors.append(f"「故障录波」目录下未找到有效的装置文件（子目录：{sub_str}）")
+            has_zwav = any(
+                f.is_file() and f.suffix.lower() in (".zwav", ".zip")
+                for f in fault_dir.rglob("*")
+            )
+            if not has_zwav:
+                sub_names = [p.name for p in fault_dir.iterdir() if p.is_dir()]
+                sub_str = "、".join(sub_names[:10]) if sub_names else "（空）"
+                errors.append(f"「故障录波」目录下未找到有效的装置文件（子目录：{sub_str}）")
 
     if errors:
         raise ValueError("；".join(errors) + "。每个装置目录下需包含 .hdr / .cfg / .rms.csv / .events.csv 中至少一种文件")

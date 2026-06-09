@@ -131,7 +131,7 @@ def apply() -> None:
         identity = identity.replace("# nanobot 🐈", "# 数智小徽 🤖")
         identity = identity.replace(
             "You are nanobot, a helpful AI assistant.",
-            "你是数智小徽，一个电网AI小助手。",
+            "你是智能解析助手。",
         )
         for before, after in _IDENTITY_REPLACEMENTS:
             identity = identity.replace(before, after)

@@ -41,6 +41,8 @@ COPY webui /app/webui
 COPY scripts /app/scripts
 COPY --from=web-builder /app/web/dist /app/webui/web/dist
 
+RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir \
         --default-timeout=300 \
         --retries=10 \
@@ -48,7 +50,8 @@ RUN pip install --no-cache-dir \
         . && \
     pip uninstall -y numpy && \
     pip install --no-cache-dir -i ${PIP_INDEX_URL} numpy==1.26.4 && \
-    pip install --no-cache-dir -i ${PIP_INDEX_URL} pymupdf xlrd openpyxl python-docx
+    pip install --no-cache-dir -i ${PIP_INDEX_URL} pymupdf xlrd openpyxl python-docx && \
+    apt-get purge -y gcc g++ && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p "${TIKTOKEN_CACHE_DIR}" \
     && python - <<'PY'

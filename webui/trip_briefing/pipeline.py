@@ -223,9 +223,9 @@ def collect_device_files(
     Returns:
         DeviceFiles 实例
     """
-    hdr_files = list(device_dir.glob("*.hdr"))
-    rms_files = list(device_dir.glob("*.rms.csv"))
-    events_files = list(device_dir.glob("*.events.csv"))
+    hdr_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".hdr"]
+    rms_files = [f for f in device_dir.iterdir() if f.name.lower().endswith(".rms.csv")]
+    events_files = [f for f in device_dir.iterdir() if f.name.lower().endswith(".events.csv")]
 
     return DeviceFiles(
         station=station,
@@ -238,7 +238,13 @@ def collect_device_files(
 
 def _has_device_files(d: Path) -> bool:
     """判断目录中是否包含装置文件（.hdr / .rms.csv / .events.csv / .cfg）"""
-    return any(d.glob("*.hdr")) or any(d.glob("*.rms.csv")) or any(d.glob("*.events.csv")) or any(d.glob("*.cfg"))
+    _exts = {".hdr", ".cfg"}
+    _name_ends = (".rms.csv", ".events.csv")
+    for f in d.iterdir():
+        low = f.name.lower()
+        if f.suffix.lower() in _exts or any(low.endswith(e) for e in _name_ends):
+            return True
+    return False
 
 
 def scan_devices(

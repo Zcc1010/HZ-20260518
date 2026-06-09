@@ -94,11 +94,16 @@ require_cmd() {
 }
 
 require_cmd docker
-require_cmd gzip
+if command -v pigz >/dev/null 2>&1; then
+  COMPRESS_CMD="pigz"
+else
+  require_cmd gzip
+  COMPRESS_CMD="gzip"
+fi
 
 if [[ "${SKIP_BUILD}" -eq 0 ]]; then
   echo "[release] building image ${IMAGE_TAG}"
-  docker build -t "${IMAGE_TAG}" "${ROOT_DIR}"
+  DOCKER_BUILDKIT=1 docker build -t "${IMAGE_TAG}" "${ROOT_DIR}"
 else
   echo "[release] skipping build, exporting existing image ${IMAGE_TAG}"
 fi
@@ -121,7 +126,7 @@ for template_file in \
 done
 
 echo "[release] exporting image archive ${ARCHIVE_PATH}"
-docker save "${IMAGE_TAG}" | gzip -c > "${TMP_RELEASE_DIR}/${ARCHIVE_NAME}"
+docker save "${IMAGE_TAG}" | ${COMPRESS_CMD} -c > "${TMP_RELEASE_DIR}/${ARCHIVE_NAME}"
 
 rm -rf "${ABS_RELEASE_DIR}"
 mkdir -p "$(dirname "${ABS_RELEASE_DIR}")"

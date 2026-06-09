@@ -136,6 +136,17 @@ async function createJob(
 
 const PAGE_SIZE = 20;
 
+/** 装置名称：新数据(station===device)只显示一个，旧数据拼接 */
+function getDeviceName(job: WaveRecordJob): string {
+  const s = job.station || "";
+  const d = job.device || "";
+  if (!s && !d) return "-";
+  if (s === d) return s;
+  if (!s) return d;
+  if (!d) return s;
+  return `${s} ${d}`;
+}
+
 export function WaveRecordWorkspace() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -155,13 +166,11 @@ export function WaveRecordWorkspace() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
-  const [stationFilter, setStationFilter] = useState("");
-  const [deviceFilter, setDeviceFilter] = useState("");
+  const [nameFilter, setNameFilter] = useState("");
 
   const filteredJobs = jobs.filter((j) => {
-    if (stationFilter && !(j.station || "").toLowerCase().includes(stationFilter.toLowerCase())) return false;
-    if (deviceFilter && !(j.device || "").toLowerCase().includes(deviceFilter.toLowerCase())) return false;
-    return true;
+    if (!nameFilter) return true;
+    return getDeviceName(j).toLowerCase().includes(nameFilter.toLowerCase());
   });
   const totalPages = Math.max(1, Math.ceil(filteredJobs.length / PAGE_SIZE));
   const paginatedJobs = filteredJobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -368,31 +377,21 @@ export function WaveRecordWorkspace() {
         {/* 筛选栏 */}
         {!loading && !error && jobs.length > 0 && (
           <div className="flex items-center gap-3 mt-3">
-            <div className="relative flex-1 max-w-[240px]">
+            <div className="relative flex-1 max-w-[320px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#888]" />
               <input
                 type="text"
-                value={stationFilter}
-                onChange={(e) => { setStationFilter(e.target.value); setCurrentPage(1); }}
-                placeholder="筛选厂站..."
+                value={nameFilter}
+                onChange={(e) => { setNameFilter(e.target.value); setCurrentPage(1); }}
+                placeholder="筛选装置名称..."
                 className="w-full h-9 pl-9 pr-3 rounded-lg border border-[#e0e0e0] bg-white text-sm text-[#333] placeholder:text-[#aaa] focus:outline-none focus:border-[#298c88] focus:ring-1 focus:ring-[#298c88]/30"
               />
             </div>
-            <div className="relative flex-1 max-w-[240px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#888]" />
-              <input
-                type="text"
-                value={deviceFilter}
-                onChange={(e) => { setDeviceFilter(e.target.value); setCurrentPage(1); }}
-                placeholder="筛选装置..."
-                className="w-full h-9 pl-9 pr-3 rounded-lg border border-[#e0e0e0] bg-white text-sm text-[#333] placeholder:text-[#aaa] focus:outline-none focus:border-[#298c88] focus:ring-1 focus:ring-[#298c88]/30"
-              />
-            </div>
-            {(stationFilter || deviceFilter) && (
+            {nameFilter && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => { setStationFilter(""); setDeviceFilter(""); setCurrentPage(1); }}
+                onClick={() => { setNameFilter(""); setCurrentPage(1); }}
                 className="text-[#888] hover:text-[#333] h-9 px-3"
               >
                 清除
@@ -432,10 +431,7 @@ export function WaveRecordWorkspace() {
                       />
                     </th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
-                      {t("agentPlayground.waveRecord.table.station")}
-                    </th>
-                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">
-                      {t("agentPlayground.waveRecord.table.device")}
+                      装置名称
                     </th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec] w-[140px] whitespace-nowrap">
                       {t("agentPlayground.waveRecord.table.status")}
@@ -457,8 +453,8 @@ export function WaveRecordWorkspace() {
                 <tbody>
                   {paginatedJobs.length === 0 ? (
                     <tr>
-                      <td className="px-5 py-10 text-sm text-[#888] text-center" colSpan={8}>
-                        {stationFilter || deviceFilter ? "没有匹配的任务" : t("agentPlayground.noJobs")}
+                      <td className="px-5 py-10 text-sm text-[#888] text-center" colSpan={7}>
+                        {nameFilter ? "没有匹配的任务" : t("agentPlayground.noJobs")}
                       </td>
                     </tr>
                   ) : (
@@ -479,10 +475,7 @@ export function WaveRecordWorkspace() {
                           )}
                         </td>
                         <td className="px-5 py-4 text-[#555]">
-                          <span className="truncate max-w-[150px] block" title={job.station || "-"}>{job.station || "-"}</span>
-                        </td>
-                        <td className="px-5 py-4 text-[#555]">
-                          <span className="truncate max-w-[150px] block" title={job.device || "-"}>{job.device || "-"}</span>
+                          <span className="truncate max-w-[250px] block" title={getDeviceName(job)}>{getDeviceName(job)}</span>
                         </td>
                         <td className="px-5 py-4 w-[140px] max-w-[140px]">
                           <div className="flex flex-col gap-2 overflow-hidden">
@@ -753,13 +746,6 @@ import {
 } from "../../ui/dialog";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../ui/select";
 
 interface CreateWaveRecordDialogProps {
   open: boolean;
@@ -772,21 +758,15 @@ function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: Cr
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
-  const [station, setStation] = useState<string>("");
-  const [device, setDevice] = useState<string>("");
-  const [deviceType, setDeviceType] = useState<string>("line");
+  const [deviceName, setDeviceName] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!station) {
-      setError(t("agentPlayground.waveRecord.stationRequired"));
-      return;
-    }
-    if (!device) {
-      setError(t("agentPlayground.waveRecord.deviceRequired"));
+    if (!deviceName.trim()) {
+      setError("请输入装置名称");
       return;
     }
     if (files.length === 0) {
@@ -805,15 +785,13 @@ function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: Cr
     setUploadProgress(0);
 
     try {
-      const job = await createJob(files, station, device, deviceType, (_, progress) => {
+      const job = await createJob(files, deviceName.trim(), deviceName.trim(), "line", (_, progress) => {
         setUploadProgress(progress);
       });
       onSuccess(job);
       onOpenChange(false);
       setFiles([]);
-      setStation("");
-      setDevice("");
-      setDeviceType("line");
+      setDeviceName("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -840,54 +818,18 @@ function CreateWaveRecordDialog({ open, onOpenChange, onSuccess, onPreview }: Cr
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="station" className="text-[#298c88]">
-                {t("agentPlayground.waveRecord.station")} <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="station"
-                type="text"
-                value={station}
-                onChange={(e) => setStation(e.target.value)}
-                placeholder={t("agentPlayground.waveRecord.stationPlaceholder")}
-                className="bg-[#f0f7fa] border-[#84aca9] text-[#000]"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="device" className="text-[#298c88]">
-                {t("agentPlayground.waveRecord.device")} <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="device"
-                type="text"
-                value={device}
-                onChange={(e) => setDevice(e.target.value)}
-                placeholder={t("agentPlayground.waveRecord.devicePlaceholder")}
-                className="bg-[#f0f7fa] border-[#84aca9] text-[#000]"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="device-type" className="text-[#298c88]">
-                {t("agentPlayground.waveRecord.deviceType")} <span className="text-red-500">*</span>
-              </Label>
-              <Select value={deviceType} onValueChange={setDeviceType}>
-                <SelectTrigger className="bg-[#f0f7fa] border-[#84aca9] text-[#000]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-white border-[#e0e0e0]">
-                  <SelectItem value="line" className="text-[#000] hover:bg-[#f0f7fa]">
-                    {t("agentPlayground.waveRecord.deviceTypeLine")}
-                  </SelectItem>
-                  <SelectItem value="transformer" className="text-[#000] hover:bg-[#f0f7fa]">
-                    {t("agentPlayground.waveRecord.deviceTypeTransformer")}
-                  </SelectItem>
-                  <SelectItem value="bus" className="text-[#000] hover:bg-[#f0f7fa]">
-                    {t("agentPlayground.waveRecord.deviceTypeBus")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="device-name" className="text-[#298c88]">
+              装置名称 <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="device-name"
+              type="text"
+              value={deviceName}
+              onChange={(e) => setDeviceName(e.target.value)}
+              placeholder="请输入装置名称"
+              className="bg-[#f0f7fa] border-[#84aca9] text-[#000]"
+            />
           </div>
 
           <div className="space-y-2">

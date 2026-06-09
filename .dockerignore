@@ -6,6 +6,7 @@ AGENTS.md
 local-notes
 docs
 openspec
+deployment
 nanobot_webui.egg-info
 web/node_modules
 web/dist

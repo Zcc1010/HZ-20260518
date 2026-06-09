@@ -290,7 +290,7 @@ export function ChatWindow() {
                 <img src={BRAND_ASSETS.logoSmall} alt={BRAND_NAME} className="h-8 w-8 object-contain" />
                 <div>
                   <p className="brand-display text-base text-[#21406b]">{BRAND_NAME}</p>
-                  <p className="text-xs text-slate-500">电网AI小助手</p>
+                  <p className="text-xs text-slate-500">智能解析助手</p>
                 </div>
               </div>
             </div>

@@ -1,3 +1,4 @@
+import re
 import subprocess
 from pathlib import Path
 
@@ -108,16 +109,73 @@ def _xlsx_to_md(path: Path) -> str:
 
 
 def _doc_to_md(path: Path) -> str:
-    result = subprocess.run(
-        ["antiword", str(path)],
-        capture_output=True, text=True, timeout=30
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"antiword 转换失败: {result.stderr}")
-    lines = result.stdout.splitlines()
-    if lines and lines[0].startswith("convert "):
-        lines = lines[1:]
-    return "\n".join(lines)
+    # Try antiword first (fast, accurate for MS Word .doc)
+    try:
+        result = subprocess.run(
+            ["antiword", str(path)],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            lines = result.stdout.splitlines()
+            if lines and lines[0].startswith("convert "):
+                lines = lines[1:]
+            return "\n".join(lines)
+    except FileNotFoundError:
+        pass  # antiword not installed, fall through
+
+    # Fallback: pure Python OLE2 text extraction (works with WPS .doc)
+    return _doc_to_md_olefile(path)
+
+
+def _doc_to_md_olefile(path: Path) -> str:
+    import struct
+
+    try:
+        import olefile
+    except ImportError:
+        raise RuntimeError(
+            "antiword 不可用且未安装 olefile。"
+            "请安装 antiword 或运行: pip install olefile"
+        )
+
+    ole = olefile.OleFileIO(str(path))
+    wd = ole.openstream("WordDocument").read()
+
+    wIdent = struct.unpack_from("<H", wd, 0)[0]
+    if wIdent != 0xA5EC:
+        ole.close()
+        raise ValueError(f"不是有效的 Word 文档: {path.name}")
+
+    # Scan WordDocument stream for UTF-16LE encoded text
+    # WPS .doc files store text as UTF-16LE in the main stream
+    results = []
+    i = 0x200  # skip FIB header
+    current: list[str] = []
+    while i < len(wd) - 1:
+        char = struct.unpack_from("<H", wd, i)[0]
+        if (
+            (0x20 <= char <= 0x7E)
+            or (0x4E00 <= char <= 0x9FFF)  # CJK Unified
+            or (0x3000 <= char <= 0x303F)  # CJK Symbols
+            or (0xFF00 <= char <= 0xFFEF)  # Fullwidth Forms
+            or char in (0x000A, 0x000D, 0x0009)
+        ):
+            current.append(chr(char))
+        else:
+            if len(current) >= 5:
+                results.append("".join(current))
+            current = []
+        i += 2
+
+    if len(current) >= 5:
+        results.append("".join(current))
+
+    ole.close()
+
+    text = "\n".join(results)
+    # Remove control characters except newline/tab
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
+    return text
 
 
 def _docx_to_md(path: Path) -> str:

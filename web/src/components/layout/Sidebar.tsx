@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import { useAuthStore } from "../../stores/authStore";
 import { BRAND_ASSETS, BRAND_NAME } from "../../lib/branding";
 import { cn } from "../../lib/utils";
-import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen, Activity } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +32,7 @@ interface NavItem {
 const GENERAL_ITEMS: NavItem[] = [
   { path: "/dashboard", label: "nav.dashboard", asset: BRAND_ASSETS.logoSmall },
   { path: "/chat", label: "nav.chat", asset: BRAND_ASSETS.sidebarLogo, activeAsset: BRAND_ASSETS.logoSmall },
+  { path: "/comtrade", label: "nav.comtrade", icon: Activity },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
@@ -100,7 +101,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     authlessEnabled: s.authlessEnabled,
   }));
   const isAdmin = !authlessEnabled && user?.role === "admin";
-  const navItems = authlessEnabled ? GENERAL_ITEMS.filter((item) => item.path === "/chat") : GENERAL_ITEMS;
+  const navItems = authlessEnabled ? GENERAL_ITEMS.filter((item) => item.path === "/chat" || item.path === "/comtrade") : GENERAL_ITEMS;
   const [showChangePwd, setShowChangePwd] = useState(false);
 
   const isActive = (item: NavItem) =>

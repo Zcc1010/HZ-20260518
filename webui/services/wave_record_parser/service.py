@@ -392,7 +392,13 @@ def execute_job(app_root: Path, job_id: str, progress_callback: Any = None) -> P
 
     # If zip file exists, use trip_briefing pipeline
     if zip_file:
-        return execute_trip_briefing(job_root, zip_file, device_type, progress_callback)
+        result = execute_trip_briefing(job_root, zip_file, device_type, progress_callback)
+        # Copy briefing outputs to workspace for AI access
+        try:
+            _copy_briefing_to_workspace(job_root, app_root, zip_file.name)
+        except Exception as e:
+            print(f"[工作区] 复制简报到工作区失败: {e}", flush=True)
+        return result
 
     # Otherwise, use simple analysis (requires cfg file)
     if not cfg_file:
@@ -804,6 +810,70 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
         raise FileNotFoundError(f"跳闸简报生成失败 (exit_code={exit_code})")
 
     return briefing_path
+
+
+def _copy_briefing_to_workspace(job_root: Path, app_root: Path, zip_name: str) -> None:
+    """Copy briefing outputs and source files to workspace for AI access.
+
+    Copies to {workspace}/跳闸简报/:
+      - 跳闸简报.md
+      - 段落/*.md
+      - source COMTRADE files (.cfg, .hdr, .dat, .rms.csv, .events.csv)
+      - info.json (metadata)
+    """
+    workspace_dir = app_root.parent.parent / "workspace"
+    if not workspace_dir.exists():
+        return
+
+    briefing_src = job_root / "output" / "跳闸简报.md"
+    if not briefing_src.exists():
+        return
+
+    dest = workspace_dir / "跳闸简报"
+    # Clean previous briefing
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    # Copy briefing markdown
+    shutil.copy2(str(briefing_src), str(dest / "跳闸简报.md"))
+
+    # Copy paragraphs
+    para_src = job_root / "output" / "段落"
+    if para_src.is_dir():
+        para_dest = dest / "段落"
+        shutil.copytree(str(para_src), str(para_dest))
+
+    # Copy source COMTRADE files from extracted directory
+    extracted = job_root / "extracted"
+    src_dest = dest / "录波源文件"
+    if extracted.is_dir():
+        _copy_comtrade_files(extracted, src_dest)
+
+    # Write metadata
+    info = {
+        "zip_name": zip_name,
+        "job_id": job_root.name,
+        "copied_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    (dest / "info.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[工作区] 已复制简报到工作区: {dest}", flush=True)
+
+
+def _copy_comtrade_files(src_dir: Path, dest_dir: Path) -> None:
+    """Recursively copy COMTRADE-related files from src to dest, preserving directory structure."""
+    COMTRADE_EXTS = {".cfg", ".dat", ".hdr", ".inf", ".rms.csv", ".events.csv"}
+    for f in src_dir.rglob("*"):
+        if not f.is_file():
+            continue
+        ext = f.suffix.lower()
+        is_comtrade = ext in COMTRADE_EXTS or f.name.lower().endswith((".rms.csv", ".events.csv"))
+        if not is_comtrade:
+            continue
+        rel = f.relative_to(src_dir)
+        dest_f = dest_dir / rel
+        dest_f.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(f), str(dest_f))
 
 
 CHUNK_SIZE = 4 * 1024 * 1024  # 4MB

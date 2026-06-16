@@ -229,3 +229,62 @@ async def delete_custom_provider(
     svc.reload_provider()
     
     return {"status": "success"}
+
+
+def _get_model_name(svc: ServiceContainer) -> str:
+    """Return the configured model name (stripped of provider prefix)."""
+    model = getattr(svc.config.agents.defaults, "model", "") or ""
+    # Strip provider prefix like "dashscope/qwen3.5-flash" → "qwen3.5-flash"
+    if "/" in model:
+        model = model.split("/", 1)[1]
+    return model or "qwen3.5-flash"
+
+
+@router.get("/comtrade-config")
+async def get_comtrade_config(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+) -> dict:
+    """Return provider config for comtrade-web embedded app (no auth required)."""
+    # comtrade-web uses OpenAI-compatible /chat/completions endpoint.
+    # Map provider names and URL patterns to OpenAI-compatible base URLs.
+    _openai_compatible_urls = {
+        "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "openai": "https://api.openai.com/v1",
+        "deepseek": "https://api.deepseek.com/v1",
+        "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+    }
+    _url_pattern_map = {
+        "dashscope.aliyuncs.com": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "open.bigmodel.cn": "https://open.bigmodel.cn/api/paas/v4",
+        "api.deepseek.com": "https://api.deepseek.com/v1",
+        "api.openai.com": "https://api.openai.com/v1",
+    }
+    # Find first provider with an API key
+    for name in _get_builtin_provider_names():
+        p = getattr(svc.config.providers, name, None)
+        if p and p.api_key:
+            # Try known provider name first, then URL pattern matching
+            base_url = _openai_compatible_urls.get(name, "")
+            if not base_url and p.api_base:
+                for pattern, url in _url_pattern_map.items():
+                    if pattern in p.api_base:
+                        base_url = url
+                        break
+            if not base_url:
+                base_url = p.api_base or ""
+            return {
+                "api_key": p.api_key,
+                "base_url": base_url,
+                "model": _get_model_name(svc),
+            }
+    # Check custom providers
+    custom_providers = webui_config.get_custom_providers()
+    for name, p_data in custom_providers.items():
+        api_key = p_data.get("api_key", "")
+        if api_key:
+            return {
+                "api_key": api_key,
+                "base_url": p_data.get("api_base", ""),
+                "model": _get_model_name(svc),
+            }
+    return {"api_key": "", "base_url": "", "model": ""}

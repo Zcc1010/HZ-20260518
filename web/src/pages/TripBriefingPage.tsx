@@ -10,6 +10,7 @@ import {
   Wifi,
   WifiOff,
   Zap,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
@@ -248,19 +249,57 @@ export default function TripBriefingPage() {
     setProgress("", key);
   }, [setProgress, setWaiting]);
 
+  const buildContextMessage = (userQuestion: string) => {
+    let ctx =
+      `以下是跳闸简报的完整内容，请基于这份简报回答后续问题。\n\n` +
+      `--- 简报开始 ---\n${previewContent}\n--- 简报结束 ---\n\n` +
+      `站点：${job?.station || "未知"}\n` +
+      `设备：${job?.device || "未知"}\n\n`;
+    ctx += `工作区中已加载本次录波的源文件（COMTRADE格式），根目录为：跳闸简报/录波源文件/\n`;
+    ctx += `目录结构示例：\n`;
+    ctx += `  跳闸简报/录波源文件/保护录波/{装置名}/xxx.cfg\n`;
+    ctx += `  跳闸简报/录波源文件/保护录波/{装置名}/xxx.hdr\n`;
+    ctx += `  跳闸简报/录波源文件/保护录波/{装置名}/xxx.dat\n`;
+    ctx += `  跳闸简报/录波源文件/保护录波/{装置名}/xxx.rms.csv\n`;
+    ctx += `  跳闸简报/录波源文件/保护录波/{装置名}/xxx.events.csv\n`;
+    ctx += `  跳闸简报/录波源文件/故障录波/{装置名}/... (同上结构)\n`;
+    ctx += `文件类型说明：\n`;
+    ctx += `  .cfg        — 通道配置文件（文本，可读）：定义了采样率、通道名称、通道数量等\n`;
+    ctx += `  .hdr        — 头文件（文本，可读）：包含装置信息、录波触发原因等\n`;
+    ctx += `  .dat        — 采样数据（二进制，不可直接文本读取）：包含各通道的瞬时值采样数据\n`;
+    ctx += `  .rms.csv    — 有效值数据（文本CSV，可读）：各通道的RMS值随时间变化，适合分析故障前后电气量变化\n`;
+    ctx += `  .events.csv — 事件记录（文本CSV，可读）：保护动作事件、开关变位等时序记录\n`;
+    ctx += `重要：\n`;
+    ctx += `1. 文件在子目录中，必须用递归搜索。glob 工具用法示例：\n`;
+    ctx += `   glob(pattern="**/*.cfg") — 列出所有 .cfg 文件\n`;
+    ctx += `   glob(pattern="**/*.rms.csv") — 列出所有有效值文件\n`;
+    ctx += `   glob(pattern="**/*.events.csv") — 列出所有事件文件\n`;
+    ctx += `   glob(pattern="**/*.hdr") — 列出所有头文件\n`;
+    ctx += `   注意：pattern 直接用 **/*.xxx，不要加中文路径前缀\n`;
+    ctx += `2. 先用 glob 列出文件，再用 read_file 读取具体内容\n`;
+    ctx += `3. 保护录波和故障录波目录下都可能有文件，都检查一下\n`;
+    ctx += `4. .dat 是二进制文件，不要尝试以文本方式读取\n`;
+    ctx += `5. .cfg 文件包含通道定义，可以用来了解录波包含哪些电气量\n`;
+    ctx += `6. 当用户要求"查看波形"、"分析波形"、"重新分析"时，必须读取 .rms.csv 和 .events.csv 文件进行分析，不要读取 .dat 文件\n`;
+    ctx += `7. .rms.csv 包含各通道的有效值（RMS）、突变量、突变时间等关键数据，是分析故障的主要数据源\n`;
+    ctx += `8. .events.csv 包含保护动作事件和开关变位记录，是分析保护行为的主要数据源\n\n`;
+    ctx += `用户问题：${userQuestion}`;
+    return ctx;
+  };
+
+  const handleNewChat = () => {
+    useChatStore.getState().clearMessages();
+    contextSentRef.current = false;
+    assistantMsgIdsRef.current = {};
+  };
+
   const handleSendClick = () => {
     const text = chatInput.trim();
     if (!text || isWaiting || !job) return;
 
     if (!contextSentRef.current && previewContent) {
-      const fullContent =
-        `以下是跳闸简报的完整内容，请基于这份简报回答后续问题。\n\n` +
-        `--- 简报开始 ---\n${previewContent}\n--- 简报结束 ---\n\n` +
-        `站点：${job.station || "未知"}\n` +
-        `设备：${job.device || "未知"}\n\n` +
-        `用户问题：${text}`;
       contextSentRef.current = true;
-      handleSend(fullContent, text);
+      handleSend(buildContextMessage(text), text);
     } else {
       handleSend(text);
     }
@@ -338,13 +377,25 @@ export default function TripBriefingPage() {
             <p className="text-xs uppercase tracking-[0.18em] text-[#888]">AI 对话</p>
             <h3 className="brand-display text-lg text-[#000]">{BRAND_NAME} 故障分析助手</h3>
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {isConnected ? (
-              <Wifi className="h-3.5 w-3.5 text-green-500" />
-            ) : (
-              <WifiOff className="h-3.5 w-3.5 text-destructive" />
-            )}
-            <span>{isConnected ? "已连接" : "未连接"}</span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNewChat}
+              className="h-7 gap-1 border-[#e0e0e0] text-xs text-[#555] hover:bg-[#f0f7fa]"
+              title="新对话"
+            >
+              <RefreshCw className="h-3 w-3" />
+              新对话
+            </Button>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {isConnected ? (
+                <Wifi className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <WifiOff className="h-3.5 w-3.5 text-destructive" />
+              )}
+              <span>{isConnected ? "已连接" : "未连接"}</span>
+            </div>
           </div>
         </div>
 

@@ -17,3 +17,6 @@ __pycache__
 *.pyd
 *.swp
 *.swo
+*.tar
+*.tar.gz
+*.log

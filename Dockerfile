@@ -50,7 +50,7 @@ RUN pip install --no-cache-dir \
         . && \
     pip uninstall -y numpy && \
     pip install --no-cache-dir -i ${PIP_INDEX_URL} numpy==1.26.4 && \
-    pip install --no-cache-dir -i ${PIP_INDEX_URL} pymupdf xlrd openpyxl python-docx && \
+    pip install --no-cache-dir -i ${PIP_INDEX_URL} pymupdf xlrd openpyxl python-docx olefile && \
     apt-get purge -y gcc g++ && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p "${TIKTOKEN_CACHE_DIR}" \

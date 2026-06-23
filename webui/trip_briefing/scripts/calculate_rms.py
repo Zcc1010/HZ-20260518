@@ -266,7 +266,15 @@ def extract_statistics_and_events(csv_path, output_dir=None, dataframe=None, cfg
     original_time_ms = data['时间ms'].copy()
 
     # 获取起始时间戳并计算绝对时间
-    start_time = datetime.datetime.strptime(cfg.first_data_timestamp, "%d/%m/%Y,%H:%M:%S.%f")
+    # 支持多种日期格式：dd/mm/yy (1991格式) 和 dd/mm/yyyy (1999/2013格式)
+    try:
+        start_time = datetime.datetime.strptime(cfg.first_data_timestamp, "%d/%m/%Y,%H:%M:%S.%f")
+    except ValueError:
+        try:
+            start_time = datetime.datetime.strptime(cfg.first_data_timestamp, "%d/%m/%y,%H:%M:%S.%f")
+        except ValueError:
+            start_time = datetime.datetime.strptime("01/01/00,00:00:00.000", "%d/%m/%y,%H:%M:%S.%f")
+            print(f"  [警告] 首数据时标格式解析失败，使用默认时间")
     time_stamp = pd.to_timedelta(data.iloc[:, 1], unit='ms')
     # 使用concat避免fragmentation警告
     data = pd.concat([data.iloc[:, [0]], pd.DataFrame({"绝对时间": time_stamp + start_time}), data.iloc[:, 2:]], axis=1)
@@ -706,6 +714,25 @@ def extract_statistics_and_events(csv_path, output_dir=None, dataframe=None, cfg
     true_events.rename(columns={'level_1': '通道名称', 0: '内容', 'level_0': '绝对时间'}, inplace=True)
     true_events.sort_values('绝对时间', inplace=True)
     true_events.reset_index(drop=True, inplace=True)
+
+    # 计算持续时间：对于返回事件，找到同一通道最近一次动作时间，计算差值
+    def calculate_duration(group):
+        group = group.sort_values('绝对时间')
+        last_action_time = None
+        durations = []
+        for idx, row in group.iterrows():
+            if row['内容'] == '动作':
+                last_action_time = row['绝对时间']
+                durations.append(None)
+            elif row['内容'] == '返回' and last_action_time is not None:
+                duration_ms = (row['绝对时间'] - last_action_time).total_seconds() * 1000
+                durations.append(round(duration_ms, 3))
+            else:
+                durations.append(None)
+        return pd.Series(durations, index=group.index)
+
+    # 按通道分组计算持续时间
+    true_events['持续时间(ms)'] = true_events.groupby('通道名称', group_keys=False).apply(calculate_duration)
 
     # 保存事件文件
     events_path = _get_output_path(csv_path, '.events.csv', output_dir)

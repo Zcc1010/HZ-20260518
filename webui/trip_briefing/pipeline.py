@@ -637,6 +637,29 @@ def run_pipeline(
     devices = scan_devices(work_dir, sub_dir="保护录波")
     fault_recorders = scan_devices(work_dir, sub_dir="故障录波")
 
+    # Step 4: 多装置时序对比（可选，不影响主流程）
+    if scripts_ok and len(devices) > 1:
+        try:
+            from webui.trip_briefing.scripts.compare_devices import compare_devices as _compare_devices
+            events_files = [Path(d.events_csv_path) for d in devices if d.events_csv_path]
+            if events_files:
+                compare_output = work_dir / "多装置时序对比表.csv"
+                _compare_devices(events_files, compare_output)
+                print(f"[Step 4] 多装置时序对比表已生成: {compare_output}", flush=True)
+        except Exception as e:
+            logger.warning(f"多装置时序对比失败（不影响主流程）: {e}")
+
+    # Step 5: 合并电流突变信息（可选）
+    if scripts_ok and len(devices) > 1:
+        try:
+            from webui.trip_briefing.scripts.calculate_rms import merge_current_mutation_files
+            rms_csv_files = [d.rms_csv_path for d in devices if d.rms_csv_path]
+            if rms_csv_files:
+                merge_current_mutation_files(rms_csv_files, output_dir=str(work_dir))
+                print(f"[Step 5] 电流突变信息汇总已生成", flush=True)
+        except Exception as e:
+            logger.warning(f"电流突变信息合并失败（不影响主流程）: {e}")
+
     print(f"[扫描] 发现 {len(devices)} 套保护装置, {len(fault_recorders)} 个故障录波器", flush=True)
 
     if not devices and not fault_recorders:

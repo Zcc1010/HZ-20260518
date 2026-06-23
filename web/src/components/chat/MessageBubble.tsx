@@ -13,7 +13,7 @@ import { ToolCallCard } from "./ToolCallCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { useAuthStore } from "../../stores/authStore";
-import { Info, ChevronDown, ChevronRight, CheckCircle2, XCircle, Bot, Copy, Check, Undo2, X, Download, FileText } from "lucide-react";
+import { Info, ChevronDown, ChevronRight, CheckCircle2, XCircle, BrainCircuit, Copy, Check, Undo2, X, Download, FileText } from "lucide-react";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -68,16 +68,16 @@ function AttachmentCard({ attachment }: { attachment: AttachmentInfo }) {
     <a
       href={withBasePath(attachment.download_url)}
       download={attachment.name}
-      className="flex w-full items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 text-left shadow-sm transition-colors hover:border-[#6ea8ff] hover:bg-[#f5faff]"
+      className="flex w-full items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 text-left shadow-sm transition-colors hover:border-[#298c88] hover:bg-[#f0f7fa]"
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#e8f3ff] text-[#2c69c8]">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#e8f0f0] text-[#298c88]">
         <FileText className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-slate-700">{attachment.name}</p>
         <p className="text-xs text-slate-500">{formatAttachmentSize(attachment.size)}</p>
       </div>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#21406b] text-white">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0d5d57] text-white">
         <Download className="h-4 w-4" />
       </div>
     </a>
@@ -109,7 +109,7 @@ function SubAgentProgressBlock({ message }: { message: ChatMessage }) {
           !isLong && "cursor-default"
         )}
       >
-        <Bot className="h-3 w-3 shrink-0 text-indigo-400 dark:text-indigo-400" />
+        <BrainCircuit className="h-3 w-3 shrink-0 text-indigo-400 dark:text-indigo-400" />
         <span className="font-medium text-indigo-500/80 dark:text-indigo-400/80 truncate max-w-[80px]">
           {label}
         </span>
@@ -284,7 +284,7 @@ function SubAgentToolBlock({ message }: { message: ChatMessage }) {
           !isLong && "cursor-default"
         )}
       >
-        <Bot className="h-3 w-3 shrink-0 text-indigo-400/80" />
+        <BrainCircuit className="h-3 w-3 shrink-0 text-indigo-400/80" />
         <span className="font-medium text-indigo-500/80 dark:text-indigo-400/80 truncate max-w-[120px]">
           ⤹︎ {label}
         </span>
@@ -446,12 +446,12 @@ export function MessageBubble({ message, onRevoke, artifactOnly }: MessageBubble
       <div className={cn(
         "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold select-none",
         isUser
-          ? "bg-[#E5F4FF] text-[#21406b] shadow-sm"
+          ? "bg-[#dcecec] text-[#0d5d57] shadow-sm"
           : "overflow-hidden p-0 shadow-sm"
       )}>
         {isUser
           ? (user?.username?.[0]?.toUpperCase() ?? "U")
-          : <img src={BRAND_ASSETS.robot} alt={BRAND_NAME} className="h-8 w-8 object-cover" />}
+          : <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b]"><BrainCircuit className="h-4 w-4 text-white" /></div>}
       </div>
 
       {/* Content */}
@@ -460,7 +460,7 @@ export function MessageBubble({ message, onRevoke, artifactOnly }: MessageBubble
         isUser ? "items-end" : "items-start"
       )}>
         {isUser ? (
-          <div className="rounded-2xl rounded-tr-sm bg-[#E5F4FF] px-4 py-2.5 text-sm leading-relaxed text-[#21406b] shadow-sm">
+          <div className="rounded-2xl rounded-tr-sm bg-[#dcecec] px-4 py-2.5 text-sm leading-relaxed text-[#0d5d57] shadow-sm">
             <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.content}</span>
           </div>
         ) : (

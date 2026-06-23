@@ -180,6 +180,19 @@ async def export_wave_record_jobs(
     )
 
 
+@router.get("/jobs/search")
+async def search_wave_record_jobs(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    station: str = "",
+) -> list[dict]:
+    """按 station 关键词搜索跳闸简报任务。"""
+    ensure_agentplayground_enabled()
+    if not station.strip():
+        return []
+    service = get_wave_record_parser_service(svc)
+    return service.search_jobs(station.strip())
+
+
 @router.get("/jobs/by-external-id/{external_id}", response_model=WaveRecordJobInfo)
 async def get_job_by_external_id(
     svc: Annotated[ServiceContainer, Depends(get_services)],

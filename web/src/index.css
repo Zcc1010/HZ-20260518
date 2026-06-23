@@ -36,74 +36,74 @@ body {
 @layer base {
   :root {
     --background: 205 100% 98%;
-    --foreground: 220 38% 18%;
+    --foreground: 174 40% 18%;
     --card: 0 0% 100%;
-    --card-foreground: 220 38% 18%;
+    --card-foreground: 174 40% 18%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 38% 18%;
-    --primary: 225 100% 58%;
+    --popover-foreground: 174 40% 18%;
+    --primary: 174 58% 35%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 203 86% 94%;
-    --secondary-foreground: 220 30% 24%;
-    --muted: 204 71% 95%;
-    --muted-foreground: 218 18% 48%;
-    --accent: 202 100% 96%;
-    --accent-foreground: 224 80% 40%;
+    --secondary: 174 30% 92%;
+    --secondary-foreground: 174 30% 24%;
+    --muted: 174 20% 94%;
+    --muted-foreground: 174 15% 48%;
+    --accent: 174 40% 92%;
+    --accent-foreground: 174 50% 20%;
     --destructive: 0 84% 58%;
     --destructive-foreground: 0 0% 100%;
-    --border: 205 61% 88%;
-    --input: 205 71% 90%;
-    --ring: 213 100% 58%;
+    --border: 174 20% 88%;
+    --input: 174 25% 90%;
+    --ring: 174 58% 35%;
     --radius: 1rem;
-    --sidebar-bg: 203 100% 92%;
-    --sidebar-fg: 220 38% 18%;
-    --sidebar-muted: 219 19% 45%;
+    --sidebar-bg: 174 40% 92%;
+    --sidebar-fg: 174 40% 18%;
+    --sidebar-muted: 174 15% 45%;
     --sidebar-active-bg: 0 0% 100%;
-    --sidebar-active-fg: 225 100% 54%;
-    --sidebar-hover-bg: 48 100% 96%;
-    --sidebar-border: 204 72% 84%;
-    --sidebar-section-label: 217 20% 43%;
-    --sidebar-edge-shadow: 10px 0 40px rgba(59, 114, 202, 0.12);
+    --sidebar-active-fg: 174 58% 35%;
+    --sidebar-hover-bg: 174 30% 94%;
+    --sidebar-border: 174 25% 84%;
+    --sidebar-section-label: 174 15% 43%;
+    --sidebar-edge-shadow: 10px 0 40px rgba(41, 140, 136, 0.12);
     --sidebar-glass-opacity: 0.96;
     --brand-sky: #d5eeff;
-    --brand-line: linear-gradient(90deg, #0dccff 0%, #4760ff 52%, #f760ff 100%);
-    --brand-hover-line: linear-gradient(90deg, #fad126 0%, #ff544f 100%);
-    --brand-input-line: linear-gradient(90deg, #2646ff 0%, #549dff 100%);
-    --brand-card-shadow: 0 18px 42px rgba(92, 132, 210, 0.13);
-    --shadow-up: 0 -10px 30px rgba(73, 125, 210, 0.08), 0 -2px 6px rgba(73, 125, 210, 0.05);
-    --shadow-down: 0 12px 36px rgba(73, 125, 210, 0.08), 0 2px 8px rgba(73, 125, 210, 0.05);
-    --shadow-right: 10px 0 32px rgba(73, 125, 210, 0.08), 2px 0 6px rgba(73, 125, 210, 0.05);
+    --brand-line: linear-gradient(90deg, #298c88 0%, #00706b 100%);
+    --brand-hover-line: linear-gradient(90deg, #00706b 0%, #0d5d57 100%);
+    --brand-input-line: linear-gradient(90deg, #298c88 0%, #00706b 100%);
+    --brand-card-shadow: 0 18px 42px rgba(41, 140, 136, 0.13);
+    --shadow-up: 0 -10px 30px rgba(41, 140, 136, 0.08), 0 -2px 6px rgba(41, 140, 136, 0.05);
+    --shadow-down: 0 12px 36px rgba(41, 140, 136, 0.08), 0 2px 8px rgba(41, 140, 136, 0.05);
+    --shadow-right: 10px 0 32px rgba(41, 140, 136, 0.08), 2px 0 6px rgba(41, 140, 136, 0.05);
     --shadow-card: var(--brand-card-shadow);
   }
 
   .dark {
-    --background: 218 41% 10%;
-    --foreground: 210 40% 92%;
-    --card: 220 39% 14%;
-    --card-foreground: 210 40% 92%;
-    --popover: 220 39% 14%;
-    --popover-foreground: 210 40% 92%;
-    --primary: 199 100% 53%;
+    --background: 174 30% 10%;
+    --foreground: 174 20% 92%;
+    --card: 174 25% 14%;
+    --card-foreground: 174 20% 92%;
+    --popover: 174 25% 14%;
+    --popover-foreground: 174 20% 92%;
+    --primary: 174 50% 45%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 221 28% 20%;
-    --secondary-foreground: 210 40% 92%;
-    --muted: 221 25% 19%;
-    --muted-foreground: 216 18% 65%;
-    --accent: 224 41% 19%;
-    --accent-foreground: 195 100% 78%;
+    --secondary: 174 20% 20%;
+    --secondary-foreground: 174 20% 92%;
+    --muted: 174 18% 19%;
+    --muted-foreground: 174 15% 65%;
+    --accent: 174 25% 19%;
+    --accent-foreground: 174 50% 78%;
     --destructive: 0 62% 45%;
-    --destructive-foreground: 210 40% 92%;
-    --border: 220 22% 20%;
-    --input: 220 22% 22%;
-    --ring: 199 100% 53%;
-    --sidebar-bg: 220 38% 12%;
-    --sidebar-fg: 210 40% 92%;
-    --sidebar-muted: 216 18% 65%;
-    --sidebar-active-bg: 220 30% 18%;
-    --sidebar-active-fg: 196 100% 70%;
-    --sidebar-hover-bg: 219 28% 17%;
-    --sidebar-border: 220 24% 18%;
-    --sidebar-section-label: 216 18% 65%;
+    --destructive-foreground: 174 20% 92%;
+    --border: 174 15% 20%;
+    --input: 174 15% 22%;
+    --ring: 174 50% 45%;
+    --sidebar-bg: 174 30% 12%;
+    --sidebar-fg: 174 20% 92%;
+    --sidebar-muted: 174 15% 65%;
+    --sidebar-active-bg: 174 25% 18%;
+    --sidebar-active-fg: 174 60% 70%;
+    --sidebar-hover-bg: 174 20% 17%;
+    --sidebar-border: 174 18% 18%;
+    --sidebar-section-label: 174 15% 65%;
     --sidebar-edge-shadow: 10px 0 32px rgba(0, 0, 0, 0.3);
     --brand-card-shadow: 0 20px 42px rgba(0, 0, 0, 0.22);
     --shadow-up: 0 -12px 30px rgba(0, 0, 0, 0.24), 0 -2px 6px rgba(0, 0, 0, 0.18);
@@ -121,9 +121,9 @@ body {
     @apply bg-background text-foreground font-sans text-base;
     font-feature-settings: "rlig" 1, "calt" 1;
     background-image:
-      radial-gradient(circle at top left, rgba(169, 221, 255, 0.5), transparent 30%),
-      radial-gradient(circle at bottom right, rgba(214, 235, 255, 0.9), transparent 28%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(238, 248, 255, 0.92));
+      radial-gradient(circle at top left, rgba(169, 221, 200, 0.5), transparent 30%),
+      radial-gradient(circle at bottom right, rgba(200, 235, 225, 0.9), transparent 28%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(232, 245, 240, 0.92));
   }
   code, pre, kbd, samp {
     @apply font-mono;
@@ -137,7 +137,7 @@ body {
   }
 
   .brand-gradient-text {
-    background-image: linear-gradient(90deg, #0dccff 0%, #4760ff 48%, #f760ff 100%);
+    background-image: linear-gradient(90deg, #298c88 0%, #00706b 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -148,7 +148,7 @@ body {
     border: 1px solid transparent;
     background:
       linear-gradient(white, white) padding-box,
-      linear-gradient(90deg, #fad126 0%, #ff544f 100%) border-box;
+      linear-gradient(90deg, #298c88 0%, #00706b 100%) border-box;
   }
 
   .brand-panel {

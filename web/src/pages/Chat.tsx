@@ -218,11 +218,11 @@ export default function Chat() {
         {/* Header row — desktop only; mobile title is hidden, FAB used instead */}
         {!isMobile && (
           <div className="flex shrink-0 items-center justify-between px-3 py-2">
-            <span className="brand-display text-sm text-[#21406b]">{t("chat.sessions")}</span>
+            <span className="brand-display text-sm text-[#0d5d57]">{t("chat.sessions")}</span>
             <button
               onClick={newChat}
               title={t("chat.newChat")}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-[#4760ff] transition-colors hover:bg-[#fffbe9] hover:text-[#21406b]"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[#298c88] transition-colors hover:bg-[#e8f0f0] hover:text-[#0d5d57]"
             >
               <Plus className="h-4 w-4" />
             </button>
@@ -265,8 +265,8 @@ export default function Chat() {
                     "group relative flex cursor-pointer items-center gap-3 rounded-xl transition-colors",
                     isMobile ? "px-3 py-3" : "px-2 py-1.5",
                     active
-                      ? "brand-hover-border bg-white text-[#21406b]"
-                      : "hover:bg-[#fffbe9]"
+                      ? "brand-hover-border bg-white text-[#0d5d57]"
+                      : "hover:bg-[#e8f0f0]"
                   )}
                   onClick={() => switchSession(s.key)}
                 >
@@ -274,7 +274,7 @@ export default function Chat() {
                   <div className={cn(
                     "flex shrink-0 items-center justify-center rounded-full leading-none",
                     isMobile ? "h-11 w-11 text-xl" : "h-6 w-6 text-sm",
-                    active ? "bg-[#E5F4FF]" : "bg-white/80"
+                    active ? "bg-[#dcecec]" : "bg-white/80"
                   )}>
                     {CHANNEL_ICONS[channel] ?? "💬"}
                   </div>
@@ -290,7 +290,7 @@ export default function Chat() {
                       </span>
                       <span className={cn(
                         "shrink-0 text-[10px] leading-snug",
-                        active ? "text-[#4760ff]" : "text-muted-foreground/70"
+                        active ? "text-[#298c88]" : "text-muted-foreground/70"
                       )}>
                         {formatDate(s.updated_at)}
                       </span>
@@ -298,7 +298,7 @@ export default function Chat() {
                     <p className={cn(
                       "mt-0.5 truncate leading-snug",
                       isMobile ? "text-xs" : "text-[10px]",
-                      active ? "text-[#21406b]" : "text-muted-foreground"
+                      active ? "text-[#0d5d57]" : "text-muted-foreground"
                     )}>
                       {sessionBusy ? (
                         <span className="inline-flex items-center gap-1">
@@ -320,8 +320,8 @@ export default function Chat() {
                     className={cn(
                       "shrink-0 transition-opacity",
                       isMobile
-                        ? cn("h-8 w-8 opacity-0 active:opacity-100", active && "opacity-100 text-[#4760ff] hover:bg-[#fffbe9]")
-                        : cn("h-5 w-5 opacity-0 group-hover:opacity-100", active && "opacity-100 text-[#4760ff] hover:bg-[#fffbe9]")
+                        ? cn("h-8 w-8 opacity-0 active:opacity-100", active && "opacity-100 text-[#298c88] hover:bg-[#e8f0f0]")
+                        : cn("h-5 w-5 opacity-0 group-hover:opacity-100", active && "opacity-100 text-[#298c88] hover:bg-[#e8f0f0]")
                     )}
                     onClick={(e) => {
                       e.stopPropagation();

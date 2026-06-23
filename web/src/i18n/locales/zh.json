@@ -15,6 +15,9 @@
     "collapse": "折叠菜单",
     "expand": "展开菜单",
     "more": "更多",
+    "agentPlayground": "智能工具",
+    "waveRecord": "录波解析",
+    "settingCheck": "定值校核",
     "section": {
       "general": "通用",
       "admin": "管理"

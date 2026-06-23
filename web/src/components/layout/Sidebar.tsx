@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import { useAuthStore } from "../../stores/authStore";
 import { BRAND_ASSETS, BRAND_NAME } from "../../lib/branding";
 import { cn } from "../../lib/utils";
-import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen, Activity } from "lucide-react";
+import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen, Brain, MessageSquare, ChevronDown, BrainCircuit } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,12 +27,12 @@ interface NavItem {
   asset?: string;
   activeAsset?: string;
   adminOnly?: boolean;
+  children?: NavItem[];
 }
 
 const GENERAL_ITEMS: NavItem[] = [
-  { path: "/dashboard", label: "nav.dashboard", asset: BRAND_ASSETS.logoSmall },
-  { path: "/chat", label: "nav.chat", asset: BRAND_ASSETS.sidebarLogo, activeAsset: BRAND_ASSETS.logoSmall },
-  { path: "/comtrade", label: "nav.comtrade", icon: Activity },
+  { path: "/agentplayground", label: "nav.agentPlayground", icon: Brain },
+  { path: "/chat", label: "nav.chat", icon: MessageSquare },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
@@ -44,9 +44,60 @@ const ADMIN_ITEMS: NavItem[] = [
   { path: "/system-config", label: "nav.systemConfig", icon: FileJson },
 ];
 
-function NavLink({ item, active, collapsed }: { item: NavItem; active: boolean; collapsed: boolean }) {
+function NavLink({ item, active, collapsed, isActive, location }: { item: NavItem; active: boolean; collapsed: boolean; isActive: (item: NavItem) => boolean; location: { pathname: string } }) {
   const { t } = useTranslation();
   const Icon = item.icon;
+  const hasChildren = item.children && item.children.length > 0;
+  const [expanded, setExpanded] = useState(false);
+
+  if (hasChildren) {
+    return (
+      <div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          title={collapsed ? t(item.label) : undefined}
+          className={cn(
+            "group flex w-full items-center rounded-2xl text-sm font-medium transition-all duration-200",
+            collapsed
+              ? "justify-center py-2.5 mx-auto w-10"
+              : "gap-3 px-3 py-2.5 hover:translate-x-0.5",
+            active
+              ? collapsed
+                ? "bg-[hsl(var(--sidebar-active-bg))] text-[hsl(var(--sidebar-active-fg))] shadow-sm"
+                : "brand-hover-border bg-[hsl(var(--sidebar-active-bg))] text-[hsl(var(--sidebar-active-fg))] shadow-sm"
+              : collapsed
+                ? "text-[hsl(var(--sidebar-fg))] hover:bg-[hsl(var(--sidebar-hover-bg))]"
+                : "text-[hsl(var(--sidebar-fg))] hover:bg-[hsl(var(--sidebar-hover-bg))]"
+          )}
+        >
+          {Icon && (
+            <Icon
+              className={cn(
+                "h-4 w-4 shrink-0 transition-colors",
+                active
+                  ? "text-[hsl(var(--sidebar-active-fg))]"
+                  : "text-[hsl(var(--sidebar-muted))] group-hover:text-[hsl(var(--sidebar-fg))]"
+              )}
+            />
+          )}
+          {!collapsed && (
+            <>
+              <span className="flex-1 truncate text-left">{t(item.label)}</span>
+              <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", expanded && "rotate-180")} />
+            </>
+          )}
+        </button>
+        {!collapsed && expanded && item.children && (
+          <div className="ml-4 mt-0.5 space-y-0.5 border-l border-[hsl(var(--sidebar-border))] pl-2">
+            {item.children.map((child) => (
+              <NavLink key={child.path} item={child} active={isActive(child)} collapsed={false} isActive={isActive} location={location} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <Link
       to={item.path}
@@ -101,7 +152,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     authlessEnabled: s.authlessEnabled,
   }));
   const isAdmin = !authlessEnabled && user?.role === "admin";
-  const navItems = authlessEnabled ? GENERAL_ITEMS.filter((item) => item.path === "/chat" || item.path === "/comtrade") : GENERAL_ITEMS;
+  const navItems = GENERAL_ITEMS;
   const [showChangePwd, setShowChangePwd] = useState(false);
 
   const isActive = (item: NavItem) =>
@@ -128,13 +179,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         collapsed ? "justify-center px-1 py-3" : "justify-between px-4 py-4"
       )}>
         {collapsed ? (
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white shadow-sm">
-            <img src={BRAND_ASSETS.sidebarLogo} alt={BRAND_NAME} className="h-5 w-5 object-contain" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+            <BrainCircuit className="h-5 w-5 text-white" />
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white shadow-sm">
-              <img src={BRAND_ASSETS.logoSmall} alt={BRAND_NAME} className="h-7 w-7 object-contain" />
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+              <BrainCircuit className="h-6 w-6 text-white" />
             </div>
             <div className="min-w-0">
               <p className="brand-display brand-gradient-text text-xl leading-none">{BRAND_NAME}</p>
@@ -172,7 +223,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           )}
           <div className="space-y-0.5">
             {navItems.map((item) => (
-              <NavLink key={item.path} item={item} active={isActive(item)} collapsed={collapsed} />
+              <NavLink key={item.path} item={item} active={isActive(item)} collapsed={collapsed} isActive={isActive} location={location} />
             ))}
           </div>
         </div>
@@ -190,7 +241,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             )}
             <div className="space-y-0.5">
               {ADMIN_ITEMS.map((item) => (
-                <NavLink key={item.path} item={item} active={isActive(item)} collapsed={collapsed} />
+                <NavLink key={item.path} item={item} active={isActive(item)} collapsed={collapsed} isActive={isActive} location={location} />
               ))}
             </div>
           </div>

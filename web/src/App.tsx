@@ -15,7 +15,6 @@ const Settings = lazy(() => import("./pages/Settings"));
 const Users = lazy(() => import("./pages/Users"));
 const SystemConfig = lazy(() => import("./pages/SystemConfig"));
 const TripBriefingPage = lazy(() => import("./pages/TripBriefingPage"));
-const ComtradePage = lazy(() => import("./pages/ComtradePage"));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token, authlessEnabled } = useAuthStore((s) => ({
@@ -30,9 +29,9 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
     user: s.user,
     authlessEnabled: s.authlessEnabled,
   }));
-  if (authlessEnabled) return <Navigate to="/chat" replace />;
+  if (authlessEnabled) return <Navigate to="/agentplayground" replace />;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "admin") return <Navigate to="/dashboard" replace />;
+  if (user.role !== "admin") return <Navigate to="/agentplayground" replace />;
   return <>{children}</>;
 }
 
@@ -86,15 +85,13 @@ export default function App() {
       <Suspense fallback={null}>
         <Routes>
           <Route path="/" element={<AgentPlayground />} />
-          <Route path="/:appId" element={<AgentPlayground />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
     );
   }
 
-  // const defaultPrivatePath = authlessEnabled ? "/agentplayground/wave-record-parser" : "/dashboard";
-  const defaultPrivatePath = "/agentplayground/wave-record-parser";
+  const defaultPrivatePath = "/agentplayground";
 
   return (
     <Suspense fallback={null}>
@@ -114,7 +111,7 @@ export default function App() {
         <Route index element={<Navigate to={defaultPrivatePath} replace />} />
         <Route
           path="dashboard"
-          element={authlessEnabled ? <Navigate to="/agentplayground/wave-record-parser" replace /> : <Dashboard />}
+          element={<Dashboard />}
         />
         <Route path="chat" element={<Chat />} />
         <Route path="chat/:sessionKey" element={<Chat />} />
@@ -184,16 +181,8 @@ export default function App() {
         element={<AgentPlayground />}
       />
       <Route
-        path="agentplayground/:appId"
-        element={<AgentPlayground />}
-      />
-      <Route
         path="trip-briefing/:jobId"
         element={<TripBriefingPage />}
-      />
-      <Route
-        path="comtrade"
-        element={<ComtradePage />}
       />
       <Route path="*" element={<Navigate to={defaultPrivatePath} replace />} />
     </Routes>

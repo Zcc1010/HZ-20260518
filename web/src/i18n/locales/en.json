@@ -15,6 +15,9 @@
     "collapse": "Collapse menu",
     "expand": "Expand menu",
     "more": "More",
+    "agentPlayground": "Smart Tools",
+    "waveRecord": "Wave Record",
+    "settingCheck": "Setting Check",
     "section": {
       "general": "General",
       "admin": "Admin"

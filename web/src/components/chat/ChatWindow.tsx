@@ -8,6 +8,7 @@ import { ChatWebSocket, type WsMessage } from "../../lib/ws";
 import { MessageBubble, extractArtifactPaths } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { useRevokeMessage } from "../../hooks/useSessions";
+import { MessageSquare, BrainCircuit } from "lucide-react";
 
 export function ChatWindow() {
   const { t } = useTranslation();
@@ -274,8 +275,8 @@ export function ChatWindow() {
           >
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-3">
-                <div className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs text-[#4760ff] shadow-sm">
-                  <img src={BRAND_ASSETS.askIcon} alt="" className="h-4 w-4 object-contain" />
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs text-[#298c88] shadow-sm">
+                  <MessageSquare className="h-4 w-4" />
                   <span>可以尝试这样问我</span>
                 </div>
                 <div className="space-y-2">
@@ -283,13 +284,17 @@ export function ChatWindow() {
                   <p className="max-w-md text-sm leading-7 text-slate-600">{t("chat.noMessages")}</p>
                 </div>
               </div>
-              <img src={BRAND_ASSETS.robot} alt={BRAND_NAME} className="h-28 w-auto object-contain" />
+              <div className="flex h-24 w-24 items-center justify-center rounded-[24px] bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-lg">
+                <BrainCircuit className="h-14 w-14 text-white" />
+              </div>
             </div>
             <div className="mt-8 rounded-[24px] bg-white/90 px-5 py-4 shadow-sm">
               <div className="flex items-center gap-2">
-                <img src={BRAND_ASSETS.logoSmall} alt={BRAND_NAME} className="h-8 w-8 object-contain" />
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#298c88] to-[#00706b]">
+                  <MessageSquare className="h-4 w-4 text-white" />
+                </div>
                 <div>
-                  <p className="brand-display text-base text-[#21406b]">{BRAND_NAME}</p>
+                  <p className="brand-display text-base text-[#0d5d57]">{BRAND_NAME}</p>
                   <p className="text-xs text-slate-500">智能解析助手</p>
                 </div>
               </div>

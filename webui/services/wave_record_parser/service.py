@@ -1245,6 +1245,43 @@ class WaveRecordParserService:
         raw = row_to_dict(row)
         return self._serialize_job(raw) if raw else None
 
+    def search_jobs(self, station: str) -> list[dict[str, Any]]:
+        """按 station 关键词模糊搜索任务。"""
+        self.initialize()
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    id, status, created_at, updated_at, error_message,
+                    file_name, cfg_file_name, dat_file_name, hdr_file_name,
+                    result_file_name, result_relative_path, result_download_token,
+                    station, device, device_type,
+                    progress, progress_message, evaluation, external_id
+                FROM jobs
+                WHERE station LIKE ? OR device LIKE ?
+                ORDER BY created_at DESC
+                """,
+                (f"%{station}%", f"%{station}%"),
+            ).fetchall()
+        results = []
+        for row in rows:
+            job = self._serialize_job(dict(row))
+            # 为已完成的任务附加简报预览
+            if job["status"] == "completed":
+                briefing_path = self.app_root / "jobs" / job["id"] / "output" / "跳闸简报.md"
+                if briefing_path.exists():
+                    try:
+                        content = briefing_path.read_text(encoding="utf-8")
+                        job["preview"] = content[:500]
+                    except Exception:
+                        job["preview"] = None
+                else:
+                    job["preview"] = None
+            else:
+                job["preview"] = None
+            results.append(job)
+        return results
+
     def mark_processing(self, job_id: str) -> None:
         self._update_job_status(job_id, "processing", None)
 

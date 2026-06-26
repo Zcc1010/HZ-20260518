@@ -86,6 +86,10 @@ class CompleteUploadRequest(BaseModel):
     external_id: str = ""
 
 
+class DownloadByIdRequest(BaseModel):
+    cookie: str = ""
+
+
 class UpdateWaveRecordJobRequest(BaseModel):
     evaluation: str = ""
 
@@ -220,6 +224,52 @@ async def create_job_from_directory(
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    return WaveRecordJobInfo(**job)
+
+
+@router.post("/jobs/download-by-id/{event_id}", response_model=WaveRecordJobInfo)
+async def download_and_create_job(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    event_id: str,
+    body: DownloadByIdRequest,
+) -> WaveRecordJobInfo:
+    """通过故障事件ID下载录波文件并创建任务。"""
+    import asyncio
+    import tempfile
+    from webui.services.wave_record_parser.downloader import EventDownloader
+
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+
+    # 先检查是否已存在该 event_id 的任务
+    existing = service.get_job_by_external_id(event_id)
+    if existing is not None:
+        return WaveRecordJobInfo(**existing)
+
+    cookie = body.cookie if body else ""
+
+    # 在线程中执行下载（避免阻塞事件循环）
+    def _download_and_create():
+        downloader = EventDownloader(cookie=cookie)
+        with tempfile.TemporaryDirectory(prefix="wave_download_") as tmp_dir:
+            # 下载文件
+            save_dir = downloader.download_event(event_id, tmp_dir)
+            # 从下载目录创建任务
+            return service.create_job_from_directory(
+                dir_path=save_dir,
+                created_by="authless-public",
+                run_in_background=True,
+            )
+
+    try:
+        job = await asyncio.to_thread(_download_and_create)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"下载失败: {e}")
+
     return WaveRecordJobInfo(**job)
 
 

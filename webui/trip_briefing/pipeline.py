@@ -477,6 +477,98 @@ def generate_paragraph(
     return response
 
 
+def _extract_device_data_summary(paragraphs_dir: Path) -> str:
+    """
+    从段落文件中提取各装置的关键数据，生成结构化摘要。
+    帮助主 Agent 正确使用各装置的独立数据，避免混用录波器汇总数据。
+    """
+    import re
+
+    device_files = sorted(paragraphs_dir.glob("*.md"))
+    if not device_files:
+        return ""
+
+    summaries = []
+    for f in device_files:
+        name = f.stem
+        content = f.read_text(encoding="utf-8")
+
+        # 跳过录波器段落（以 _ 结尾或不含 "保护" 和 "RCS" 等关键词）
+        is_recorder = name.endswith("_") or ("录波器" in content and "保护" not in name and "RCS" not in name.upper())
+        if is_recorder:
+            continue
+
+        # 提取装置型号
+        model_match = re.search(r'\*\*装置型号\*\*:\s*(.+)', content)
+        model = model_match.group(1).strip() if model_match else "未知"
+
+        # 提取故障时间
+        time_match = re.search(r'\*\*故障时间\*\*:\s*(\S+)', content)
+        fault_time = time_match.group(1).strip() if time_match else "未知"
+
+        # 提取 RMS 电流最大值
+        rms_match = re.search(r'\*\*电流RMS最大值\*\*:\s*(.+)', content)
+        rms_current = rms_match.group(1).strip() if rms_match else "未获取到数据"
+
+        # 提取差流数据
+        diff_current_lines = []
+        in_diff_table = False
+        for line in content.split('\n'):
+            if '通道' in line and '相差流' in line:
+                in_diff_table = True
+                continue
+            if in_diff_table and line.startswith('|'):
+                diff_current_lines.append(line.strip())
+            elif in_diff_table and not line.startswith('|'):
+                in_diff_table = False
+
+        diff_summary = ""
+        if diff_current_lines:
+            diff_summary = "; ".join(diff_current_lines)
+
+        # 提取 Events 中的动作事件（仅"动作"，不含"返回"）
+        action_events = []
+        in_events_table = False
+        for line in content.split('\n'):
+            if '| 绝对时间' in line and '通道名称' in line:
+                in_events_table = True
+                continue
+            if in_events_table and line.startswith('|') and '动作' in line and '返回' not in line:
+                parts = [p.strip() for p in line.split('|') if p.strip()]
+                if len(parts) >= 3:
+                    action_events.append(f"{parts[0]} {parts[1]} {parts[2]}")
+            elif in_events_table and not line.startswith('|') and line.strip():
+                in_events_table = False
+
+        events_summary = "; ".join(action_events[:10]) if action_events else "未获取到数据"
+
+        summary = f"""**{name}**:
+- 装置型号: {model}
+- 故障时间: {fault_time}
+- 电流RMS最大值: {rms_current}
+- 差流数据: {diff_summary if diff_summary else "未获取到数据"}
+- 动作事件: {events_summary}"""
+        summaries.append(summary)
+
+    if not summaries:
+        return ""
+
+    return "\n\n---\n\n".join(summaries)
+
+
+REQUIRED_BRIEFING_SECTIONS = {
+    "line": ["故障基本情况", "保护配置情况", "动作基本情况", "动作时序表", "综合分析", "故障判定结论", "故障录波评价"],
+    "transformer": ["故障基本情况", "保护配置情况", "动作基本情况", "动作时序表", "综合分析", "故障判定结论", "故障录波评价"],
+    "bus": ["故障基本情况", "保护配置情况", "动作基本情况", "动作时序表", "综合分析", "故障判定结论"],
+}
+
+
+def _check_briefing_completeness(content: str, device_type: str) -> bool:
+    """检查简报内容是否包含所有必要章节。"""
+    sections = REQUIRED_BRIEFING_SECTIONS.get(device_type, REQUIRED_BRIEFING_SECTIONS["line"])
+    return all(s in content for s in sections)
+
+
 def generate_briefing(
     paragraphs_dir: Path,
     llm_client,
@@ -487,7 +579,7 @@ def generate_briefing(
 ) -> LLMResponse:
     """
     Step 8: 读取所有段落，生成完整简报。
-    当输出被截断时自动续写，最多 3 轮。
+    当输出被截断或缺少必要章节时自动续写，最多 3 轮。
 
     Args:
         paragraphs_dir: 段落目录
@@ -512,6 +604,19 @@ def generate_briefing(
         return LLMResponse(success=False, error_message="没有可用的段落文件")
 
     all_paragraphs = "\n\n---\n\n".join(paragraphs)
+
+    # 提取各装置关键数据摘要，帮助 LLM 正确区分不同装置的数据
+    device_summary = _extract_device_data_summary(paragraphs_dir)
+    if device_summary:
+        all_paragraphs = f"""## 各装置关键数据摘要（必须使用以下数据，不得混用）
+
+{device_summary}
+
+---
+
+## 完整段落
+
+{all_paragraphs}"""
 
     # 构造 prompt
     build_prompt = get_prompt_builder(device_type, "main_agent")
@@ -560,17 +665,34 @@ def generate_briefing(
 
         all_content_parts.append(response.content)
 
-        # 检查是否被截断
-        is_truncated = response.completion_tokens >= TRUNCATION_THRESHOLD
-        if not is_truncated or round_idx >= MAX_CONTINUATIONS:
+        # 合并当前所有内容，检查完整性
+        full_content_so_far = strip_placeholders(strip_code_fences("\n".join(all_content_parts)))
+
+        # 两种情况需要续写：token 接近上限，或缺少必要章节
+        is_token_truncated = response.completion_tokens >= TRUNCATION_THRESHOLD
+        is_content_incomplete = not _check_briefing_completeness(full_content_so_far, device_type)
+        needs_continuation = (is_token_truncated or is_content_incomplete) and round_idx < MAX_CONTINUATIONS
+
+        if not needs_continuation:
             break
 
-        # 被截断，发起续写
-        logger.warning(f"主 Agent 输出被截断 ({response.completion_tokens} tokens)，发起续写 (第 {round_idx + 1} 次)")
+        # 构造续写提示
+        if is_token_truncated:
+            reason = f"输出被截断 ({response.completion_tokens} tokens)"
+            cont_msg = "请继续输出上文未完成的内容，从断点处接着写，不要重复已有内容。"
+        else:
+            missing = []
+            for s in REQUIRED_BRIEFING_SECTIONS.get(device_type, REQUIRED_BRIEFING_SECTIONS["line"]):
+                if s not in full_content_so_far:
+                    missing.append(s)
+            reason = f"缺少章节: {', '.join(missing)}"
+            cont_msg = f"上文缺少以下章节，请补充完整：{', '.join(missing)}。不要重复已有内容，直接从缺失的章节开始写。"
+
+        logger.warning(f"主 Agent 需要续写 ({reason})，发起续写 (第 {round_idx + 1} 次)")
         current_messages = [
             {"role": "user", "content": prompt_text},
             {"role": "assistant", "content": response.content},
-            {"role": "user", "content": "请继续输出上文未完成的内容，从断点处接着写，不要重复已有内容。"},
+            {"role": "user", "content": cont_msg},
         ]
 
     # 合并所有内容

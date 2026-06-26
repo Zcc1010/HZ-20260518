@@ -28,6 +28,23 @@ class Cfg:
     time_multiplier: float = 1.0
 
 
+def detect_cfg_format(lines):
+    """
+    检测CFG格式版本
+
+    返回:
+        tuple: (rev_year, format_type)
+        - rev_year: 版本年号 ('1991', '1999', '2013')
+        - format_type: 'old' (1991只有2字段) 或 'new' (1999/2013有3字段)
+    """
+    parts = lines[0].strip().split(',')
+    if len(parts) >= 3:
+        return parts[2], 'new'
+    else:
+        # 1991格式只有站名和设备ID，无版本年号字段
+        return '1991', 'old'
+
+
 def parse_cfg(cfg_path):
     """
     解析COMTRADE CFG文件，返回Cfg对象
@@ -43,11 +60,17 @@ def parse_cfg(cfg_path):
     with open(cfg_path, 'r', encoding='gb18030', errors='replace') as f:
         lines = f.readlines()
 
+    # 检测格式版本
+    rev_year, format_type = detect_cfg_format(lines)
+
     # 第1行：站名，设备ID，版本年号
     parts = lines[0].strip().split(',')
     cfg.station_name = parts[0]  # 厂站位置名称或文件形成的位置名称
-    cfg.rec_dev_id = parts[1]  # 装置的标识编号或名称
-    cfg.rev_year = parts[2]  # 由标准版本的年号规定的COMTRADE标准文件版本，只可是1991，1999和2013中的一个
+    cfg.rec_dev_id = parts[1] if len(parts) > 1 else ''  # 装置的标识编号或名称
+    cfg.rev_year = rev_year  # 由标准版本的年号规定的COMTRADE标准文件版本，只可是1991，1999和2013中的一个
+
+    if format_type == 'old':
+        print(f"  [警告] CFG文件为1991格式，缺少版本年号字段，部分字段可能缺失")
 
     # 第2行：总通道数，模拟通道数，数字通道数
     ch_line = lines[1].strip()
@@ -61,47 +84,79 @@ def parse_cfg(cfg_path):
     line_idx = 2
     for i in range(cfg.analog_channels):
         parts = lines[line_idx].strip().split(',')
+        # 处理1991格式可能缺少的字段
+        a_val = float(parts[5]) if len(parts) > 5 and parts[5] else 1.0
+        b_val = float(parts[6]) if len(parts) > 6 and parts[6] else 0.0
+        primary_val = float(parts[10]) if len(parts) > 10 and parts[10] else 1.0
+        secondary_val = float(parts[11]) if len(parts) > 11 and parts[11] else 1.0
+        ps_val = parts[12] if len(parts) > 12 else 'S'
+
         ch_info = {
             'index': int(parts[0]),  # 模拟通道索引号
             'name': parts[1],  # 通道标识
-            'phase': parts[2],  # 通道相别标识（A\B\C）
-            'component': parts[3],  # 被监视的电路元件
-            'unit': parts[4],  # 通道单位
-            'a': float(parts[5]),  # 通道增益系数
-            'b': float(parts[6]),  # 通道偏移量
-            'skew': parts[7],  # 从采样时刻开始的通道时滞 $(\mu s)$
-            'min': int(parts[8]),  # 该通道数值范围的最小值(可能数值范围的最下限)
-            'max': int(parts[9]),  # 该通道数值范围的最大值(可能数值范围的最上限)
-            'primary': float(parts[10]),  # 通道电压或电流互感器变比一次系数
-            'secondary': float(parts[11]),  # 通道电压或电流互感器变比二次系数
-            'ps': parts[12],  # 一次(P)还是二次(S)值的标识
+            'phase': parts[2] if len(parts) > 2 else '',  # 通道相别标识（A\B\C）
+            'component': parts[3] if len(parts) > 3 else '',  # 被监视的电路元件
+            'unit': parts[4] if len(parts) > 4 else '',  # 通道单位
+            'a': a_val,  # 通道增益系数
+            'b': b_val,  # 通道偏移量
+            'skew': parts[7] if len(parts) > 7 else '0',  # 从采样时刻开始的通道时滞 $(\mu s)$
+            'min': int(parts[8]) if len(parts) > 8 and parts[8] else -1000000,  # 该通道数值范围的最小值
+            'max': int(parts[9]) if len(parts) > 9 and parts[9] else 1000000,  # 该通道数值范围的最大值
+            'primary': primary_val,  # 通道电压或电流互感器变比一次系数
+            'secondary': secondary_val,  # 通道电压或电流互感器变比二次系数
+            'ps': ps_val,  # 一次(P)还是二次(S)值的标识
         }
         cfg.analog_channel_info.append(ch_info)
         line_idx += 1
 
     # 解析数字通道（从模拟通道之后开始）
     for i in range(cfg.digital_channels):
+        if line_idx >= len(lines):
+            # 数字通道信息不足，创建默认通道
+            for j in range(cfg.digital_channels - i):
+                cfg.digital_channel_info.append({
+                    'index': i + j + 1,
+                    'name': f'数字通道{i + j + 1}',
+                    'ph': '',
+                    'ccbm': '',
+                    'y': 0
+                })
+            print(f"  [警告] 数字通道信息不足，缺少{cfg.digital_channels - i}个通道定义")
+            break
         parts = lines[line_idx].strip().split(',')
         ch = {
-            'index': int(parts[0]),  # 状态通道索引编号
-            'name': parts[1],  # 通道名
-            'ph': parts[2],  # 通道相别标识
-            'ccbm': parts[3],  # 被监视电路元件
-            'y': int(parts[4])  # 状态通道正常状态
+            'index': int(parts[0]) if parts[0] else i + 1,  # 状态通道索引编号
+            'name': parts[1] if len(parts) > 1 else f'数字通道{i + 1}',  # 通道名
+            'ph': parts[2] if len(parts) > 2 else '',  # 通道相别标识
+            'ccbm': parts[3] if len(parts) > 3 else '',  # 被监视电路元件
+            'y': int(parts[4]) if len(parts) > 4 and parts[4] else 0  # 状态通道正常状态
         }
         cfg.digital_channel_info.append(ch)
         line_idx += 1
 
     # 线路频率定义行
-    cfg.frequency = float(lines[line_idx])
+    if line_idx < len(lines):
+        try:
+            cfg.frequency = float(lines[line_idx])
+        except ValueError:
+            cfg.frequency = 50.0  # 默认50Hz
+            print(f"  [警告] 线路频率解析失败，使用默认值50Hz")
+    else:
+        cfg.frequency = 50.0
     line_idx += 1
 
     # 采样率数量
-    sampling_rate_count = int(lines[line_idx]) if lines[line_idx].strip().isdigit() else 1
+    if line_idx < len(lines):
+        sampling_rate_count = int(lines[line_idx]) if lines[line_idx].strip().isdigit() else 1
+    else:
+        sampling_rate_count = 1
     line_idx += 1
 
     # 获取采样率
     for i in range(sampling_rate_count):
+        if line_idx >= len(lines):
+            cfg.sampling_rates.append((1200.0, 0))  # 默认采样率
+            break
         parts = lines[line_idx].strip().split(',')
         if len(parts) >= 2:
             try:
@@ -109,23 +164,39 @@ def parse_cfg(cfg_path):
                 end_sample = int(parts[1])
                 cfg.sampling_rates.append((rate, end_sample))
             except ValueError:
-                pass
+                cfg.sampling_rates.append((1200.0, 0))
+        else:
+            cfg.sampling_rates.append((1200.0, 0))
         line_idx += 1
 
     # 日期/时标
-    cfg.first_data_timestamp = lines[line_idx].strip()
+    if line_idx < len(lines):
+        cfg.first_data_timestamp = lines[line_idx].strip()
+    else:
+        cfg.first_data_timestamp = '01/01/00,00:00:00.000'
+        print(f"  [警告] 首数据时标缺失")
     line_idx += 1
-    cfg.trigger_timestamp = lines[line_idx].strip()
+
+    if line_idx < len(lines):
+        cfg.trigger_timestamp = lines[line_idx].strip()
+    else:
+        cfg.trigger_timestamp = '01/01/00,00:00:00.000'
     line_idx += 1
 
     # 数据文件类型
-    cfg.data_file_type = lines[line_idx].strip()
+    if line_idx < len(lines):
+        cfg.data_file_type = lines[line_idx].strip()
+    else:
+        cfg.data_file_type = 'BINARY'
+        print(f"  [警告] 数据文件类型缺失，假定为BINARY")
     line_idx += 1
 
     # 时标倍率因子（可选，默认为1）
     if line_idx < len(lines):
-        cfg.time_multiplier = float(lines[line_idx])
-        line_idx += 1
+        try:
+            cfg.time_multiplier = float(lines[line_idx])
+        except ValueError:
+            cfg.time_multiplier = 1.0
     else:
         cfg.time_multiplier = 1.0
 

@@ -31,6 +31,9 @@ interface WaveRecordJob {
   station?: string;
   device?: string;
   external_id?: string;
+  progress?: number;
+  progress_message?: string;
+  error_message?: string;
 }
 
 async function fetchJob(jobIdOrExternalId: string): Promise<WaveRecordJob> {
@@ -49,7 +52,7 @@ async function fetchJob(jobIdOrExternalId: string): Promise<WaveRecordJob> {
   if (!res.ok) throw new Error("Failed to fetch jobs");
   const jobs: WaveRecordJob[] = await res.json();
   const job = jobs.find((j) => j.id === jobIdOrExternalId || j.external_id === jobIdOrExternalId);
-  if (!job) throw new Error("未找到该跳闸简报");
+  if (!job) throw new Error("未找到简报");
   return job;
 }
 
@@ -77,6 +80,8 @@ export default function TripBriefingPage() {
   const [previewContent, setPreviewContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // --- Chat state ---
   const {
@@ -103,6 +108,87 @@ export default function TripBriefingPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [chatInput, setChatInput] = useState("");
 
+  // --- Download by ID ---
+  const handleDownloadById = useCallback(async () => {
+    if (!jobId) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const res = await fetch(withBasePath(`/api/wave-record-parser/jobs/download-by-id/${encodeURIComponent(jobId)}`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "下载失败");
+      }
+      const newJob: WaveRecordJob = await res.json();
+      setJob(newJob);
+      setError(null);
+      // 跳转到新任务
+      navigate(`/trip-briefing/${newJob.id}`, { replace: true });
+      // 如果任务还在处理中，开始轮询
+      if (newJob.status === "queued" || newJob.status === "processing") {
+        startPolling(newJob.id);
+      } else if (newJob.status === "completed" && newJob.preview_url) {
+        const content = await fetchPreview(newJob.preview_url);
+        setPreviewContent(content);
+        setDownloading(false);
+      }
+    } catch {
+      setDownloadError("下载失败，请稍后重试");
+      setDownloading(false);
+    }
+  }, [jobId, navigate]);
+
+  // --- Polling for job status ---
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startPolling = useCallback((targetJobId: string) => {
+    const poll = async () => {
+      try {
+        const res = await fetch(withBasePath(`/api/wave-record-parser/jobs`));
+        if (!res.ok) return;
+        const jobs: WaveRecordJob[] = await res.json();
+        const currentJob = jobs.find(j => j.id === targetJobId);
+        if (!currentJob) return;
+
+        setJob(currentJob);
+
+        if (currentJob.status === "completed") {
+          setDownloading(false);
+          if (currentJob.preview_url) {
+            const content = await fetchPreview(currentJob.preview_url);
+            setPreviewContent(content);
+          }
+          return;
+        }
+
+        if (currentJob.status === "failed") {
+          setDownloading(false);
+          setDownloadError("生成失败，请重试");
+          return;
+        }
+
+        // 继续轮询
+        pollTimerRef.current = setTimeout(poll, 3000);
+      } catch {
+        pollTimerRef.current = setTimeout(poll, 5000);
+      }
+    };
+    pollTimerRef.current = setTimeout(poll, 3000);
+  }, []);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+      }
+    };
+  }, []);
+
   // --- Fetch job & preview ---
   useEffect(() => {
     if (!jobId) {
@@ -113,17 +199,27 @@ export default function TripBriefingPage() {
     fetchJob(jobId)
       .then(async (data) => {
         setJob(data);
-        if (data.preview_url) {
+        if (data.status === "completed" && data.preview_url) {
           const content = await fetchPreview(data.preview_url);
           setPreviewContent(content);
+          setLoading(false);
+        } else if (data.status === "queued" || data.status === "processing") {
+          // 任务还在处理中，开始轮询
+          setDownloading(true);
+          setLoading(false);
+          startPolling(data.id);
+        } else if (data.status === "failed") {
+          setError("简报生成失败");
+          setLoading(false);
+        } else {
+          setLoading(false);
         }
-        setLoading(false);
       })
-      .catch((err) => {
-        setError(err.message);
+      .catch(() => {
+        setError("未找到该跳闸简报");
         setLoading(false);
       });
-  }, [jobId]);
+  }, [jobId, startPolling]);
 
   // --- Clear chat when entering ---
   useEffect(() => {
@@ -307,27 +403,75 @@ export default function TripBriefingPage() {
   };
 
   // --- Loading / Error states ---
-  if (loading) {
+  if (loading || downloading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#f2f3f7]">
-        <Loader2 className="h-8 w-8 animate-spin text-[#298c88]" />
-        <span className="ml-3 text-[#666]">加载跳闸简报...</span>
+      <div className="flex h-screen flex-col items-center justify-center bg-gradient-to-br from-[#f0f7fa] to-[#e8f4f3]">
+        <div className="flex flex-col items-center gap-6 rounded-3xl bg-white/80 px-12 py-10 shadow-lg backdrop-blur-sm">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b]">
+            <Loader2 className="h-8 w-8 animate-spin text-white" />
+          </div>
+          <div className="text-center">
+            <p className="text-lg font-medium text-[#333]">
+              {downloading ? "正在下载录波文件" : "加载跳闸简报"}
+            </p>
+            {downloading && job?.progress_message && (
+              <p className="mt-2 text-sm text-[#298c88]">{job.progress_message}</p>
+            )}
+            <p className="mt-2 text-sm text-[#888]">
+              {downloading ? "正在生成简报，请耐心等待..." : "请稍候..."}
+            </p>
+          </div>
+          {downloading && job?.progress !== undefined && job.progress > 0 && (
+            <div className="w-48 overflow-hidden rounded-full bg-[#e8f0f0]">
+              <div
+                className="h-1.5 rounded-full bg-gradient-to-r from-[#298c88] to-[#00b3a6] transition-all duration-500"
+                style={{ width: `${job.progress}%` }}
+              />
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
   if (error || !job) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center bg-[#f2f3f7] gap-4">
-        <p className="text-[#cc3333]">{error || "未找到简报"}</p>
-        <Button
-          variant="outline"
-          onClick={() => navigate("/agentplayground/wave-record-parser")}
-          className="border-[#e0e0e0] text-[#555]"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          返回录波解析
-        </Button>
+      <div className="flex h-screen flex-col items-center justify-center bg-gradient-to-br from-[#f0f7fa] to-[#e8f4f3]">
+        <div className="flex flex-col items-center gap-6 rounded-3xl bg-white/80 px-12 py-10 shadow-lg backdrop-blur-sm">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b]">
+            <Zap className="h-8 w-8 text-white" />
+          </div>
+          <div className="text-center">
+            <p className="text-lg font-medium text-[#333]">未找到简报</p>
+            <p className="mt-2 text-sm text-[#888]">
+              {downloadError || "该故障事件暂无简报数据"}
+            </p>
+          </div>
+          <div className="flex flex-col items-center gap-3">
+            <Button
+              onClick={handleDownloadById}
+              disabled={downloading}
+              className="h-11 rounded-xl bg-gradient-to-r from-[#298c88] to-[#00706b] px-8 text-white shadow-md hover:from-[#0d5d57] hover:to-[#005a55] hover:shadow-lg transition-all"
+            >
+              {downloading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  正在下载...
+                </>
+              ) : (
+                "下载并生成简报"
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => navigate("/agentplayground/wave-record-parser")}
+              className="h-10 rounded-xl border-[#d0e0e0] text-[#555] hover:bg-[#f0f7fa]"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              返回录波解析
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

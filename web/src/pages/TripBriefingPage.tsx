@@ -129,7 +129,23 @@ export default function TripBriefingPage() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.detail || "下载失败");
       }
-      const newJob: WaveRecordJob = await res.json();
+      let newJob: WaveRecordJob = await res.json();
+      // 如果 station/device 为空但 URL 带了 equipmentName，回填数据库
+      if (!newJob.station && !newJob.device && equipmentName) {
+        try {
+          const patchRes = await fetch(withBasePath(`/api/wave-record-parser/jobs/${newJob.id}`), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              station: equipmentName,
+              device: equipmentName,
+            }),
+          });
+          if (patchRes.ok) {
+            newJob = await patchRes.json();
+          }
+        } catch { /* ignore */ }
+      }
       setJob(newJob);
       setError(null);
       // 不跳转路由，保留原始外部事件ID和equipmentName参数
@@ -210,8 +226,8 @@ export default function TripBriefingPage() {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                station: equipmentName.split(" ")[0] || equipmentName,
-                device: equipmentName.split(" ").slice(1).join(" ") || equipmentName,
+                station: equipmentName,
+                device: equipmentName,
               }),
             });
             if (patchRes.ok) {
@@ -541,7 +557,7 @@ export default function TripBriefingPage() {
       <div className="flex flex-1 flex-col bg-white">
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-[#e8f0f0] px-5 py-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-gradient-to-br from-[#4760ff] to-[#21406b]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-gradient-to-br from-[#298c88] to-[#0d5d57]">
             <MessageSquare className="h-5 w-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">

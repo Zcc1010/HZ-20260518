@@ -49,6 +49,7 @@ export function ChatWindow() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const handleWsMessageRef = useRef<(msg: WsMessage) => void>(() => {});
+  const cancelledRef = useRef(false);
   const [isConnected, setIsConnected] = useState(false);
   const revokeMessage = useRevokeMessage();
 
@@ -123,17 +124,20 @@ export function ChatWindow() {
           setCurrentSession(msg.session_key);
         }
       } else if (msg.type === "stream_start") {
+        if (cancelledRef.current) return;
         if (!msgSessionKey || msgSessionKey === currentKey) {
           ensureStreamingMessage();
         }
         setProgress("", targetKey);
       } else if (msg.type === "stream_delta") {
+        if (cancelledRef.current) return;
         if ((!msgSessionKey || msgSessionKey === currentKey) && msg.content) {
           const streamId = ensureStreamingMessage();
           useChatStore.getState().appendAssistantText(streamId, msg.content);
         }
         setProgress("", targetKey);
       } else if (msg.type === "stream_end") {
+        if (cancelledRef.current) return;
         if (!msgSessionKey || msgSessionKey === currentKey) {
           patchStreamingMessage({ isStreaming: false });
         }
@@ -164,6 +168,7 @@ export function ChatWindow() {
           }
         }
       } else if (msg.type === "done") {
+        cancelledRef.current = false;
         setProgress("", targetKey);
         setWaiting(false, targetKey);
 
@@ -230,6 +235,7 @@ export function ChatWindow() {
       if (!wsRef.current?.isConnected) {
         wsRef.current?.connect();
       }
+      cancelledRef.current = false;
       addMessage({
         id: nanoid(),
         role: "user",
@@ -246,6 +252,7 @@ export function ChatWindow() {
 
   const handleStop = useCallback(() => {
     const key = currentSessionKey ?? "";
+    cancelledRef.current = true;
     wsRef.current?.cancel(key);
     setWaiting(false, key);
     setProgress("", key);

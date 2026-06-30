@@ -92,6 +92,8 @@ class DownloadByIdRequest(BaseModel):
 
 class UpdateWaveRecordJobRequest(BaseModel):
     evaluation: str = ""
+    station: str = ""
+    device: str = ""
 
 
 class ExportJobsRequest(BaseModel):
@@ -263,15 +265,32 @@ async def download_and_create_job(
 
     # 在线程中执行下载（避免阻塞事件循环）
     def _download_and_create():
+        from pathlib import Path
+        from webui.services.wave_record_parser.service import parse_fault_event_md
+
         downloader = EventDownloader(cookie=cookie)
         with tempfile.TemporaryDirectory(prefix="wave_download_") as tmp_dir:
             # 下载文件
             save_dir = downloader.download_event(event_id, tmp_dir)
+            # 从 _故障事件信息.md 提取装置名称（兼容多种字段名）
+            equipment_name = ""
+            for f in Path(save_dir).rglob("*.md"):
+                if "故障事件" in f.name:
+                    meta = parse_fault_event_md(f)
+                    equipment_name = (
+                        meta.get("equipmentName", "")
+                        or meta.get("设备名称", "")
+                        or meta.get("装置名称", "")
+                    )
+                    break
             # 从下载目录创建任务
             return service.create_job_from_directory(
                 dir_path=save_dir,
+                station=equipment_name or None,
+                device=equipment_name or None,
                 created_by="authless-public",
                 run_in_background=True,
+                external_id=event_id,
             )
 
     try:
@@ -294,7 +313,12 @@ async def update_wave_record_job(
 ) -> WaveRecordJobInfo:
     ensure_agentplayground_enabled()
     service = get_wave_record_parser_service(svc)
-    job = service.update_job_evaluation(job_id, body.evaluation)
+    job = service.update_job_fields(
+        job_id,
+        evaluation=body.evaluation,
+        station=body.station,
+        device=body.device,
+    )
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return WaveRecordJobInfo(**job)

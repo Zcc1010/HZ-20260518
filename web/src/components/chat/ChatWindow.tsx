@@ -137,7 +137,9 @@ export function ChatWindow() {
         if (!msgSessionKey || msgSessionKey === currentKey) {
           patchStreamingMessage({ isStreaming: false });
         }
-        delete assistantMsgIdsRef.current[targetKey];
+        // Don't delete the ref here — let the "done" handler do final
+        // cleanup. Deleting early causes "done" to add a duplicate message
+        // because patchStreamingMessage can't find the streaming message.
       } else if (msg.type === "progress") {
         if (msg.content?.trim() && msg.tool_hint) {
           addMessage({
@@ -314,8 +316,8 @@ export function ChatWindow() {
         )}
         {isWaiting && progressText && (
           <div className="mt-4 flex items-start gap-3 px-4">
-            <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-full shadow-sm">
-              <img src={BRAND_ASSETS.robot} alt={BRAND_NAME} className="h-8 w-8 object-cover" />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+              <BrainCircuit className="h-4 w-4 text-white" />
             </div>
             <div className="rounded-2xl rounded-tl-sm bg-white/90 px-4 py-2.5 text-sm text-slate-600 shadow-sm flex items-center gap-2">
               <span className="flex gap-1">

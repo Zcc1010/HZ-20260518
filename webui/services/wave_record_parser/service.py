@@ -1111,6 +1111,7 @@ class WaveRecordParserService:
         device_type: str | None = None,
         created_by: str | None = None,
         run_in_background: bool = True,
+        external_id: str | None = None,
     ) -> dict[str, Any]:
         """从本地目录创建任务，自动读取 _故障事件信息.md 提取元数据。"""
         dir_path = Path(dir_path).expanduser().resolve()
@@ -1143,6 +1144,7 @@ class WaveRecordParserService:
             device_type=device_type,
             created_by=created_by,
             run_in_background=run_in_background,
+            external_id=external_id,
         )
 
     def list_jobs(self) -> list[dict[str, Any]]:
@@ -1521,12 +1523,29 @@ class WaveRecordParserService:
         if md_meta:
             if not external_id and md_meta.get("id"):
                 external_id = md_meta["id"]
-            if not station and md_meta.get("equipmentName"):
-                station = md_meta["equipmentName"]
-            if not device and md_meta.get("equipmentName"):
-                device = md_meta["equipmentName"]
+            # 兼容多种字段名：equipmentName / 设备名称 / 装置名称
+            equip_name = (
+                md_meta.get("equipmentName")
+                or md_meta.get("设备名称")
+                or md_meta.get("装置名称")
+                or ""
+            )
+            if not station and equip_name:
+                station = equip_name
+            if not device and equip_name:
+                device = equip_name
             if (not device_type or device_type == "line") and md_meta.get("equipType"):
                 device_type = _equip_type_to_device_type(md_meta["equipType"])
+
+        # 如果 md 中没有提取到，从 .cfg 文件回退提取
+        if (not station or not device) and cfg_name:
+            cfg_path = inputs_dir / cfg_name
+            if cfg_path.exists():
+                cfg_data = parse_cfg_file(cfg_path)
+                if not station and cfg_data.get("station_name"):
+                    station = cfg_data["station_name"]
+                if not device and cfg_data.get("device_name"):
+                    device = cfg_data["device_name"]
 
         if primary_name is None:
             primary_name = file_names[0] if file_names else "wave_record"
@@ -1769,11 +1788,37 @@ class WaveRecordParserService:
         return results
 
     def update_job_evaluation(self, job_id: str, evaluation: str) -> dict[str, Any] | None:
+        return self.update_job_fields(job_id, evaluation=evaluation)
+
+    def update_job_fields(
+        self,
+        job_id: str,
+        *,
+        evaluation: str | None = None,
+        station: str | None = None,
+        device: str | None = None,
+    ) -> dict[str, Any] | None:
         self.initialize()
+        updates = []
+        params: list[Any] = []
+        if evaluation is not None:
+            updates.append("evaluation = ?")
+            params.append(evaluation)
+        if station is not None and station:
+            updates.append("station = ?")
+            params.append(station)
+        if device is not None and device:
+            updates.append("device = ?")
+            params.append(device)
+        if not updates:
+            return self.get_job(job_id)
+        updates.append("updated_at = ?")
+        params.append(utcnow_iso())
+        params.append(job_id)
         with connect(self.db_path) as conn:
             conn.execute(
-                "UPDATE jobs SET evaluation = ?, updated_at = ? WHERE id = ?",
-                (evaluation, utcnow_iso(), job_id),
+                f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?",
+                params,
             )
             row = conn.execute(
                 """

@@ -6,7 +6,7 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
-  Zap,
+  BrainCircuit,
   MessageSquare,
   Send,
   Square,
@@ -21,7 +21,7 @@ import { Textarea } from "../../ui/textarea";
 import { cn } from "../../../lib/utils";
 import { withBasePath } from "../../../lib/basePath";
 import { MarkdownRenderer } from "../../shared/MarkdownRenderer";
-import { BRAND_ASSETS, BRAND_NAME } from "../../../lib/branding";
+import { BRAND_NAME } from "../../../lib/branding";
 import { ChatWebSocket, type WsMessage } from "../../../lib/ws";
 import { useChatStore, type ChatMessage } from "../../../stores/chatStore";
 
@@ -354,7 +354,7 @@ export function TripBriefingWorkspace() {
           {/* Header */}
           <div className="flex items-center gap-3 border-b border-[#e8f0f0] px-5 py-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-gradient-to-br from-[#298c88] to-[#00706b]">
-              <Zap className="h-5 w-5 text-white" />
+              <BrainCircuit className="h-5 w-5 text-white" />
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-[#888]">跳闸简报</p>
@@ -453,7 +453,7 @@ export function TripBriefingWorkspace() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-gradient-to-br from-[#298c88] to-[#00706b]">
-              <Zap className="h-5 w-5 text-white" />
+              <BrainCircuit className="h-5 w-5 text-white" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-[0.18em] text-[#888]">跳闸简报</p>
@@ -518,8 +518,8 @@ export function TripBriefingWorkspace() {
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 py-4">
           {messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#f0f7fa]">
-                <img src={BRAND_ASSETS.robot} alt={BRAND_NAME} className="h-10 w-10 object-contain" />
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b]">
+                <BrainCircuit className="h-8 w-8 text-white" />
               </div>
               <p className="brand-display text-lg text-[#21406b]">{BRAND_NAME} 故障分析助手</p>
               <p className="mt-2 max-w-sm text-sm text-[#888] leading-6">
@@ -544,8 +544,8 @@ export function TripBriefingWorkspace() {
                   className={cn("flex items-start gap-3", msg.role === "user" && "flex-row-reverse")}
                 >
                   {msg.role === "assistant" && (
-                    <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-full shadow-sm">
-                      <img src={BRAND_ASSETS.robot} alt={BRAND_NAME} className="h-8 w-8 object-cover" />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+                      <BrainCircuit className="h-4 w-4 text-white" />
                     </div>
                   )}
                   <div
@@ -569,8 +569,8 @@ export function TripBriefingWorkspace() {
 
           {isWaiting && progressText && (
             <div className="mt-4 flex items-start gap-3">
-              <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-full shadow-sm">
-                <img src={BRAND_ASSETS.robot} alt={BRAND_NAME} className="h-8 w-8 object-cover" />
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+                <BrainCircuit className="h-4 w-4 text-white" />
               </div>
               <div className="rounded-2xl rounded-tl-sm bg-white/90 px-4 py-2.5 text-sm text-slate-600 shadow-sm flex items-center gap-2 border border-[#e8f0f0]">
                 <span className="flex gap-1">

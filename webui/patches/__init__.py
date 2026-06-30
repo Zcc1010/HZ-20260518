@@ -14,11 +14,12 @@ provider    [Provider]    Auto-fall-back to OpenAI /v1/responses when needed.
 skills      [Skills]      Honour .disabled_skills.json from the WebUI toggle.
 subagent    [SubAgent]    Push tool-call progress to WebUI / external channels.
 token_estimation [TokenEstimation] Fail fast on offline tiktoken misses.
+ledger_tool [LedgerTool]  Register ledger_query tool for equipment queries.
 """
 
 from __future__ import annotations
 
-from webui.patches import channels, config, mcp_dynamic, network, prompt, provider, session, skills, subagent, token_estimation
+from webui.patches import channels, config, ledger_tool, mcp_dynamic, network, prompt, provider, session, skills, subagent, token_estimation
 
 
 def apply_all() -> None:
@@ -33,3 +34,4 @@ def apply_all() -> None:
     provider.apply()
     skills.apply()
     subagent.apply()
+    ledger_tool.apply()

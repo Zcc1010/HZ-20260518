@@ -7,7 +7,7 @@ import { SettingCheckWorkspace } from "../components/agentplayground/settingchec
 import { BRAND_NAME } from "../lib/branding";
 import { cn } from "../lib/utils";
 
-type AppId = "wave-record-parser" | "setting-check" | "comtrade";
+type AppId = "wave-record-parser" | "setting-check";
 
 interface AppItem {
   id: AppId;
@@ -19,7 +19,6 @@ interface AppItem {
 const APPS: AppItem[] = [
   { id: "wave-record-parser", titleKey: "agentPlayground.apps.waveRecordParser.title", descriptionKey: "agentPlayground.apps.waveRecordParser.description", icon: AudioWaveform },
   { id: "setting-check", titleKey: "agentPlayground.apps.settingCheck.title", descriptionKey: "agentPlayground.apps.settingCheck.description", icon: FileCheck },
-  { id: "comtrade", titleKey: "nav.comtrade", descriptionKey: "agentPlayground.apps.comtrade.description", icon: Activity },
 ];
 
 export default function AgentPlayground() {
@@ -130,19 +129,8 @@ export default function AgentPlayground() {
         <main className="flex-1 min-w-0 rounded-[30px] border border-[#e0e0e0] bg-white/95 p-4 shadow-[0_4px_20px_rgba(13,93,87,0.08)] sm:p-5 overflow-auto lg:p-6">
           {selectedAppId === "wave-record-parser" && <WaveRecordWorkspace />}
           {selectedAppId === "setting-check" && <SettingCheckWorkspace />}
-          {selectedAppId === "comtrade" && <ComtradeContent />}
         </main>
       </div>
     </div>
-  );
-}
-
-function ComtradeContent() {
-  return (
-    <iframe
-      src="/protection/comtrade-app/index.html"
-      style={{ width: "100%", height: "100%", border: "none", borderRadius: "12px" }}
-      title="故障录波简报生成器"
-    />
   );
 }

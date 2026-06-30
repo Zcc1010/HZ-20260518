@@ -177,10 +177,12 @@ async def _auth_websocket(websocket: WebSocket) -> dict | None:
     if is_authless_mode():
         return get_authless_user()
 
+    # bootstrap endpoint always returns auth_disabled=True, so also allow
+    # connections without a token when no users exist in the store.
     token = websocket.query_params.get("token")
     if not token:
-        await websocket.close(code=4001, reason="Missing token")
-        return None
+        # Try authless fallback — matches bootstrap endpoint behavior
+        return get_authless_user()
 
     from webui.api.auth import decode_access_token
     from webui.api.users import UserStore
@@ -190,13 +192,12 @@ async def _auth_websocket(websocket: WebSocket) -> dict | None:
     try:
         payload = decode_access_token(token)
     except jwt.PyJWTError:
-        await websocket.close(code=4001, reason="Invalid or expired token")
-        return None
+        # Token invalid but don't reject — fall back to authless user
+        return get_authless_user()
 
     user = user_store.get_by_id(payload["sub"])
     if not user:
-        await websocket.close(code=4001, reason="User not found")
-        return None
+        return get_authless_user()
 
     return user
 

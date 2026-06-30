@@ -1,6 +1,6 @@
 import { withBasePath } from "./basePath";
 
-export const BRAND_NAME = "智能解析";
+export const BRAND_NAME = "调度中心";
 export const BRAND_THEME_STORAGE_KEY = "wave-parser-theme";
 const BRAND_ASSET_VERSION = "20260430a";
 const brandAsset = (path: string) => `${withBasePath(path)}?v=${BRAND_ASSET_VERSION}`;

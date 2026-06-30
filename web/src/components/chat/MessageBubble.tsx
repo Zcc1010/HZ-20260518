@@ -5,15 +5,13 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { useTranslation } from "react-i18next";
-import { BRAND_ASSETS, BRAND_NAME } from "../../lib/branding";
 import { withBasePath } from "../../lib/basePath";
 import { cn } from "../../lib/utils";
 import type { AttachmentInfo, ChatMessage } from "../../stores/chatStore";
 import { ToolCallCard } from "./ToolCallCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ArtifactPreview } from "./ArtifactPreview";
-import { useAuthStore } from "../../stores/authStore";
-import { Info, ChevronDown, ChevronRight, CheckCircle2, XCircle, BrainCircuit, Copy, Check, Undo2, X, Download, FileText } from "lucide-react";
+import { Info, ChevronDown, ChevronRight, CheckCircle2, XCircle, BrainCircuit, Copy, Check, Undo2, X, Download, FileText, User } from "lucide-react";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -361,8 +359,6 @@ function ToolMessageWrapper({ children }: { children: React.ReactNode }) {
 }
 
 export function MessageBubble({ message, onRevoke, artifactOnly }: MessageBubbleProps) {
-  const user = useAuthStore((s) => s.user);
-
   // Don't render anything for empty/whitespace messages
   if (!message.content?.trim() && !message.toolCalls?.length && !message.attachments?.length && !message.isStreaming) {
     return null;
@@ -450,7 +446,7 @@ export function MessageBubble({ message, onRevoke, artifactOnly }: MessageBubble
           : "overflow-hidden p-0 shadow-sm"
       )}>
         {isUser
-          ? (user?.username?.[0]?.toUpperCase() ?? "U")
+          ? <User className="h-4 w-4 text-[#0d5d57]" />
           : <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b]"><BrainCircuit className="h-4 w-4 text-white" /></div>}
       </div>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { nanoid } from "nanoid";
 import {
   Loader2,
@@ -9,7 +9,7 @@ import {
   Square,
   Wifi,
   WifiOff,
-  Zap,
+  BrainCircuit,
   RefreshCw,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -17,7 +17,7 @@ import { Textarea } from "../components/ui/textarea";
 import { cn } from "../lib/utils";
 import { withBasePath } from "../lib/basePath";
 import { MarkdownRenderer } from "../components/shared/MarkdownRenderer";
-import { BRAND_ASSETS, BRAND_NAME } from "../lib/branding";
+import { BRAND_NAME } from "../lib/branding";
 import { ChatWebSocket, type WsMessage } from "../lib/ws";
 import { useChatStore, type ChatMessage } from "../stores/chatStore";
 
@@ -73,6 +73,8 @@ async function fetchPreview(url: string): Promise<string> {
 
 export default function TripBriefingPage() {
   const { jobId } = useParams<{ jobId: string }>();
+  const [searchParams] = useSearchParams();
+  const equipmentName = searchParams.get("equipmentName") || "";
   const navigate = useNavigate();
 
   // --- Job & preview state ---
@@ -82,6 +84,10 @@ export default function TripBriefingPage() {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // Display name falls back to route equipmentName when job data is empty
+  const displayStation = job?.station || equipmentName.split(" ")[0] || "未知站点";
+  const displayDevice = job?.device || equipmentName.split(" ").slice(1).join(" ") || equipmentName || "未知设备";
 
   // --- Chat state ---
   const {
@@ -126,8 +132,7 @@ export default function TripBriefingPage() {
       const newJob: WaveRecordJob = await res.json();
       setJob(newJob);
       setError(null);
-      // 跳转到新任务
-      navigate(`/trip-briefing/${newJob.id}`, { replace: true });
+      // 不跳转路由，保留原始外部事件ID和equipmentName参数
       // 如果任务还在处理中，开始轮询
       if (newJob.status === "queued" || newJob.status === "processing") {
         startPolling(newJob.id);
@@ -198,6 +203,22 @@ export default function TripBriefingPage() {
     }
     fetchJob(jobId)
       .then(async (data) => {
+        // 如果 station/device 为空但 URL 带了 equipmentName，回填数据库
+        if (!data.station && !data.device && equipmentName) {
+          try {
+            const patchRes = await fetch(withBasePath(`/api/wave-record-parser/jobs/${data.id}`), {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                station: equipmentName.split(" ")[0] || equipmentName,
+                device: equipmentName.split(" ").slice(1).join(" ") || equipmentName,
+              }),
+            });
+            if (patchRes.ok) {
+              data = await patchRes.json();
+            }
+          } catch { /* ignore */ }
+        }
         setJob(data);
         if (data.status === "completed" && data.preview_url) {
           const content = await fetchPreview(data.preview_url);
@@ -349,8 +370,8 @@ export default function TripBriefingPage() {
     let ctx =
       `以下是跳闸简报的完整内容，请基于这份简报回答后续问题。\n\n` +
       `--- 简报开始 ---\n${previewContent}\n--- 简报结束 ---\n\n` +
-      `站点：${job?.station || "未知"}\n` +
-      `设备：${job?.device || "未知"}\n\n`;
+      `站点：${displayStation}\n` +
+      `设备：${displayDevice}\n\n`;
     ctx += `工作区中已加载本次录波的源文件（COMTRADE格式），根目录为：跳闸简报/录波源文件/\n`;
     ctx += `目录结构示例：\n`;
     ctx += `  跳闸简报/录波源文件/保护录波/{装置名}/xxx.cfg\n`;
@@ -439,12 +460,18 @@ export default function TripBriefingPage() {
       <div className="flex h-screen flex-col items-center justify-center bg-gradient-to-br from-[#f0f7fa] to-[#e8f4f3]">
         <div className="flex flex-col items-center gap-6 rounded-3xl bg-white/80 px-12 py-10 shadow-lg backdrop-blur-sm">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b]">
-            <Zap className="h-8 w-8 text-white" />
+            <BrainCircuit className="h-8 w-8 text-white" />
           </div>
           <div className="text-center">
             <p className="text-lg font-medium text-[#333]">未找到简报</p>
+            {jobId && (
+              <p className="mt-1 text-sm text-[#555]">
+                事件ID: {jobId}
+                {equipmentName && ` | 装置: ${equipmentName}`}
+              </p>
+            )}
             <p className="mt-2 text-sm text-[#888]">
-              {downloadError || "该故障事件暂无简报数据"}
+              {downloadError || "该故障事件暂无简报数据，点击下方按钮下载录波并生成"}
             </p>
           </div>
           <div className="flex flex-col items-center gap-3">
@@ -492,12 +519,12 @@ export default function TripBriefingPage() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-gradient-to-br from-[#298c88] to-[#00706b]">
-            <Zap className="h-5 w-5 text-white" />
+            <BrainCircuit className="h-5 w-5 text-white" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-[0.18em] text-[#888]">跳闸简报</p>
             <h3 className="brand-display text-lg text-[#000] truncate">
-              {job.station || "未知站点"} - {job.device || "未知设备"}
+              {displayStation} - {displayDevice}
             </h3>
           </div>
         </div>
@@ -547,8 +574,8 @@ export default function TripBriefingPage() {
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 py-4">
           {messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#f0f7fa]">
-                <img src={BRAND_ASSETS.robot} alt={BRAND_NAME} className="h-10 w-10 object-contain" />
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b]">
+                <BrainCircuit className="h-8 w-8 text-white" />
               </div>
               <p className="brand-display text-lg text-[#21406b]">{BRAND_NAME} 故障分析助手</p>
               <p className="mt-2 max-w-sm text-sm text-[#888] leading-6">
@@ -557,7 +584,7 @@ export default function TripBriefingPage() {
               <div className="mt-4 rounded-2xl border border-[#e8f0f0] bg-[#f0f7fa]/60 px-4 py-3 text-left max-w-md">
                 <p className="text-xs text-[#888]">当前简报</p>
                 <p className="mt-1 text-sm font-medium text-[#000]">
-                  {job.station || "未知站点"} - {job.device || "未知设备"}
+                  {displayStation} - {displayDevice}
                 </p>
               </div>
             </div>
@@ -569,8 +596,8 @@ export default function TripBriefingPage() {
                   className={cn("flex items-start gap-3", msg.role === "user" && "flex-row-reverse")}
                 >
                   {msg.role === "assistant" && (
-                    <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-full shadow-sm">
-                      <img src={BRAND_ASSETS.robot} alt={BRAND_NAME} className="h-8 w-8 object-cover" />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+                      <BrainCircuit className="h-4 w-4 text-white" />
                     </div>
                   )}
                   <div
@@ -594,8 +621,8 @@ export default function TripBriefingPage() {
 
           {isWaiting && progressText && (
             <div className="mt-4 flex items-start gap-3">
-              <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-full shadow-sm">
-                <img src={BRAND_ASSETS.robot} alt={BRAND_NAME} className="h-8 w-8 object-cover" />
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+                <BrainCircuit className="h-4 w-4 text-white" />
               </div>
               <div className="rounded-2xl rounded-tl-sm bg-white/90 px-4 py-2.5 text-sm text-slate-600 shadow-sm flex items-center gap-2 border border-[#e8f0f0]">
                 <span className="flex gap-1">
@@ -621,7 +648,7 @@ export default function TripBriefingPage() {
                   handleSendClick();
                 }
               }}
-              placeholder={`询问关于 ${job.station || ""} ${job.device || ""} 的故障分析...`}
+              placeholder={`询问关于 ${displayStation} ${displayDevice} 的故障分析...`}
               rows={1}
               className="resize-none border-[#e0e0e0] bg-[#f0f7fa] focus-visible:ring-[#298c88] text-sm min-h-[44px] max-h-[120px]"
             />

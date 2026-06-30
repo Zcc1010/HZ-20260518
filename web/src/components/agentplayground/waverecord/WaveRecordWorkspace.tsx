@@ -580,7 +580,7 @@ export function WaveRecordWorkspace() {
                             {job.status === "completed" && job.preview_url && (
                               <button
                                 type="button"
-                                onClick={() => navigate(`/trip-briefing/${job.external_id || job.id}`)}
+                                onClick={() => navigate(`/trip-briefing/${job.external_id || job.id}?equipmentName=${encodeURIComponent(getDeviceName(job))}`)}
                                 className="inline-flex items-center text-[#298c88] hover:text-[#0d5d57] transition-colors"
                                 title="跳闸简报"
                               >

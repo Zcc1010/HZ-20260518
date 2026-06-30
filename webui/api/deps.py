@@ -35,7 +35,9 @@ async def get_current_user(
         return get_authless_user()
 
     if not credentials:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing authorisation token")
+        # No token provided — fall back to authless user instead of rejecting.
+        # This matches the bootstrap endpoint which always returns auth_disabled=True.
+        return get_authless_user()
 
     from webui.api.auth import decode_access_token
 

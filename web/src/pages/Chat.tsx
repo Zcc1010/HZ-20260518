@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ChatWindow } from "../components/chat/ChatWindow";
 import { useChatStore, type ChatMessage } from "../stores/chatStore";
@@ -54,19 +55,29 @@ function sessionDisplayLabel(
 
 export default function Chat() {
   const { t } = useTranslation();
+  const { sessionKey: urlSessionKey } = useParams<{ sessionKey?: string }>();
   const user = useAuthStore((s) => s.user);
   const authlessEnabled = useAuthStore((s) => s.authlessEnabled);
   const isMobile = useIsMobile();
   // On mobile: track whether the user is viewing the chat window (true) or session list (false)
   const mobileShowChat = useChatStore((s) => s.mobileShowChat);
   const setMobileShowChat = useChatStore((s) => s.setMobileShowChat);
-  const { currentSessionKey, setCurrentSession, setMessages } = useChatStore();
+  const { currentSessionKey, setCurrentSession, setMessages, applyBookmarks } = useChatStore();
   const sessionStates = useChatStore((s) => s.sessionStates);
   const { data: sessions } = useSessions();
   const { data: sessionMsgs, isSuccess: historyLoaded } = useSessionMessages(currentSessionKey ?? "");
   const deleteSession = useDeleteSession();
   const loadedKeyRef = useRef<string | null>(null);
   const loadedCountRef = useRef<number>(0);
+  const urlKeyInitializedRef = useRef(false);
+
+  // Sync URL sessionKey to store — only once on mount when URL has a key
+  useEffect(() => {
+    if (urlSessionKey && !urlKeyInitializedRef.current) {
+      urlKeyInitializedRef.current = true;
+      setCurrentSession(urlSessionKey);
+    }
+  }, [urlSessionKey]);
   // Track the exact message objects written to the store by the last setMessages call.
   // Used to identify which store messages were added locally (e.g. error bubbles)
   // vs. loaded from server, without relying on timestamps (which have timezone mismatches).
@@ -131,8 +142,9 @@ export default function Chat() {
         m.content.startsWith("⚠️")
     );
     const merged = localToPreserve.length > 0 ? [...msgs, ...localToPreserve] : msgs;
-    lastSetMsgsRef.current = merged;
-    setMessages(merged);
+    const withBookmarks = applyBookmarks(currentSessionKey, merged);
+    lastSetMsgsRef.current = withBookmarks;
+    setMessages(withBookmarks);
   }, [currentSessionKey, historyLoaded, sessionMsgs, setMessages]);
 
   const isAdmin = !authlessEnabled && user?.role === "admin";
@@ -150,15 +162,18 @@ export default function Chat() {
   );
 
   // Auto-select: if persisted key still exists keep it; otherwise fall back to first session.
+  // Skip auto-select when navigating from URL (e.g. feedback page link).
   // IMPORTANT: a newly created local session key (starts with myPrefix) won't exist in
   // mySessions yet (the server only records it on first message), so don't redirect away from it.
   useEffect(() => {
     if (mySessions.length === 0) return;
+    // Don't override if we have a URL session key
+    if (urlSessionKey) return;
     const keyExists = currentSessionKey && mySessions.some((s) => s.key === currentSessionKey);
     if (!keyExists && !currentSessionKey?.startsWith(myPrefix)) {
       setCurrentSession(mySessions[0].key);
     }
-  }, [mySessions, currentSessionKey, setCurrentSession, myPrefix]);
+  }, [mySessions, currentSessionKey, setCurrentSession, myPrefix, urlSessionKey]);
 
   // If the current key is a locally-created session (not yet persisted on server),
   // prepend it to the sidebar list so the user sees it immediately after clicking "+".
@@ -396,7 +411,7 @@ export default function Chat() {
             </span>
           </div>
         )}
-        <ChatWindow />
+        <ChatWindow urlSessionKey={urlSessionKey} isLoading={!!currentSessionKey && !historyLoaded} />
       </div>
     </div>
   );

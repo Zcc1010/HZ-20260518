@@ -1,4 +1,4 @@
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { TransitionLink as Link } from "../shared/TransitionLink";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "next-themes";
@@ -146,6 +146,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { t, i18n } = useTranslation();
   const { resolvedTheme, setTheme } = useTheme();
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, clearAuth, authlessEnabled } = useAuthStore((s) => ({
     user: s.user,
     clearAuth: s.clearAuth,
@@ -179,12 +180,18 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         collapsed ? "justify-center px-1 py-3" : "justify-between px-4 py-4"
       )}>
         {collapsed ? (
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+          <div
+            className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm cursor-default select-none"
+            onDoubleClick={() => navigate("/feedback")}
+          >
             <BrainCircuit className="h-5 w-5 text-white" />
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+            <div
+              className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm cursor-default select-none"
+              onDoubleClick={() => navigate("/feedback")}
+            >
               <BrainCircuit className="h-6 w-6 text-white" />
             </div>
             <div className="min-w-0">

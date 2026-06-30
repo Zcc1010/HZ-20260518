@@ -15,6 +15,7 @@ const Settings = lazy(() => import("./pages/Settings"));
 const Users = lazy(() => import("./pages/Users"));
 const SystemConfig = lazy(() => import("./pages/SystemConfig"));
 const TripBriefingPage = lazy(() => import("./pages/TripBriefingPage"));
+const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token, authlessEnabled } = useAuthStore((s) => ({
@@ -115,6 +116,7 @@ export default function App() {
         />
         <Route path="chat" element={<Chat />} />
         <Route path="chat/:sessionKey" element={<Chat />} />
+        <Route path="feedback" element={<FeedbackPage />} />
         <Route
           path="providers"
           element={<Navigate to={authlessEnabled ? "/chat" : "/settings?tab=providers"} replace />}

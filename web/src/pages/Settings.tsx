@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { withBasePath } from "../lib/basePath";
 import { toast } from "sonner";
 import { ArrowLeft, ChevronDown, ChevronRight, X, Plus, Trash2 } from "lucide-react";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -944,6 +945,90 @@ function WorkspaceTab() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+// ── Feedback tab ─────────────────────────────────────────────────────────────
+
+interface FeedbackItem {
+  message_id: string;
+  message_content: string;
+  issue_type: string;
+  description: string;
+  created_at: string;
+}
+
+const ISSUE_TYPE_LABELS: Record<string, string> = {
+  wrong: "回答错误",
+  outdated: "信息过时",
+  tool_error: "工具调用失败",
+  format: "格式问题",
+  other: "其他",
+};
+
+function FeedbackTab() {
+  const [items, setItems] = useState<FeedbackItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchFeedback = async () => {
+    setLoading(true);
+    try {
+      const resp = await fetch(withBasePath("/api/chat/feedback"));
+      if (resp.ok) {
+        setItems(await resp.json());
+      }
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchFeedback(); }, []);
+
+  if (loading) return <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}</div>;
+
+  if (items.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground text-sm">
+          暂无反馈记录
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">共 {items.length} 条反馈</p>
+        <Button size="sm" variant="outline" onClick={fetchFeedback}>刷新</Button>
+      </div>
+      {items.map((item, i) => (
+        <Card key={i}>
+          <CardContent className="py-3 px-4 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                  {ISSUE_TYPE_LABELS[item.issue_type] || item.issue_type}
+                </span>
+                <span className="text-xs text-muted-foreground font-mono">{item.message_id.slice(0, 8)}...</span>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {new Date(item.created_at).toLocaleString()}
+              </span>
+            </div>
+            {item.description && (
+              <p className="text-sm text-slate-700">{item.description}</p>
+            )}
+            {item.message_content && (
+              <pre className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-2 max-h-24 overflow-y-auto whitespace-pre-wrap break-all">
+                {item.message_content.slice(0, 500)}{item.message_content.length > 500 ? "..." : ""}
+              </pre>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
 export default function Settings() {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -955,10 +1040,12 @@ export default function Settings() {
         <TabsTrigger value="agent" className="flex-1 sm:flex-none">{t("nav.settings")}</TabsTrigger>
         <TabsTrigger value="providers" className="flex-1 sm:flex-none">{t("nav.providers")}</TabsTrigger>
         <TabsTrigger value="workspace" className="flex-1 sm:flex-none">{t("settings.workspaceFiles")}</TabsTrigger>
+        <TabsTrigger value="feedback" className="flex-1 sm:flex-none">反馈</TabsTrigger>
       </TabsList>
       <TabsContent value="agent" className="mt-4"><AgentTab /></TabsContent>
       <TabsContent value="providers" className="mt-4"><ProvidersTab /></TabsContent>
       <TabsContent value="workspace" className="mt-4"><WorkspaceTab /></TabsContent>
+      <TabsContent value="feedback" className="mt-4"><FeedbackTab /></TabsContent>
     </Tabs>
   );
 }

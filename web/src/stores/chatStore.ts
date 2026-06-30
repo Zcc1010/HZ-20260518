@@ -12,6 +12,8 @@ export interface ChatMessage {
   isSubAgent?: boolean; // message originated from a background SubAgent
   serverIndex?: number; // original index in the server session.messages array (used for revoke)
   attachments?: AttachmentInfo[];
+  bookmarked?: boolean;
+  feedbackSubmitted?: boolean;
 }
 
 export interface ToolCallInfo {
@@ -35,14 +37,23 @@ interface SessionState {
   progressText: string;
 }
 
+/** Build a stable key for matching a message across reloads (role + content prefix). */
+function messageContentKey(msg: { role: string; content: string }): string {
+  return `${msg.role}::${msg.content.slice(0, 200)}`;
+}
+
 interface ChatState {
   currentSessionKey: string | null;
   messages: ChatMessage[];
   showToolMessages: boolean;
+  showBookmarkedOnly: boolean;
   mobileShowChat: boolean;
 
   /** Per-session waiting / progress state — keyed by session key. */
   sessionStates: Record<string, SessionState>;
+
+  /** Bookmark persistence: sessionKey -> contentKey -> true */
+  bookmarkedMessages: Record<string, Record<string, boolean>>;
 
   // Convenience getters for the *current* session
   isWaiting: boolean;
@@ -59,9 +70,14 @@ interface ChatState {
   setWaiting: (v: boolean, sessionKey?: string) => void;
   clearMessages: () => void;
   setMessages: (msgs: ChatMessage[]) => void;
+  /** Apply persisted bookmark flags to a list of messages for a given session. */
+  applyBookmarks: (sessionKey: string, msgs: ChatMessage[]) => ChatMessage[];
   /** Remove messages by serverIndex (and all subsequent messages belonging to the same reply pair). */
   revokeMessage: (serverIndex: number) => void;
   toggleToolMessages: () => void;
+  toggleBookmarkedOnly: () => void;
+  toggleBookmark: (messageId: string) => void;
+  markFeedbackSubmitted: (messageId: string) => void;
   /** Get waiting state for a specific session. */
   getSessionState: (key: string) => SessionState;
 }
@@ -74,8 +90,10 @@ export const useChatStore = create<ChatState>()(
       currentSessionKey: null,
       messages: [],
       showToolMessages: false,
+      showBookmarkedOnly: false,
       mobileShowChat: false,
       sessionStates: {},
+      bookmarkedMessages: {},
 
       // Derived from sessionStates[currentSessionKey]
       get isWaiting() {
@@ -149,6 +167,46 @@ export const useChatStore = create<ChatState>()(
       toggleToolMessages: () =>
         set((state) => ({ showToolMessages: !state.showToolMessages })),
 
+      toggleBookmarkedOnly: () =>
+        set((state) => ({ showBookmarkedOnly: !state.showBookmarkedOnly })),
+
+      applyBookmarks: (sessionKey, msgs) => {
+        const saved = get().bookmarkedMessages[sessionKey];
+        if (!saved) return msgs;
+        return msgs.map((m) => {
+          const key = messageContentKey(m);
+          return saved[key] ? { ...m, bookmarked: true } : m;
+        });
+      },
+
+      toggleBookmark: (messageId) =>
+        set((state) => {
+          const msg = state.messages.find((m) => m.id === messageId);
+          if (!msg) return {};
+          const newBookmarked = !msg.bookmarked;
+          const sessionKey = state.currentSessionKey ?? "";
+          const key = messageContentKey(msg);
+          const sessionBookmarks = { ...(state.bookmarkedMessages[sessionKey] ?? {}) };
+          if (newBookmarked) {
+            sessionBookmarks[key] = true;
+          } else {
+            delete sessionBookmarks[key];
+          }
+          return {
+            messages: state.messages.map((m) =>
+              m.id === messageId ? { ...m, bookmarked: newBookmarked } : m
+            ),
+            bookmarkedMessages: { ...state.bookmarkedMessages, [sessionKey]: sessionBookmarks },
+          };
+        }),
+
+      markFeedbackSubmitted: (messageId) =>
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            m.id === messageId ? { ...m, feedbackSubmitted: true } : m
+          ),
+        })),
+
       getSessionState: (key) => {
         return get().sessionStates[key] ?? DEFAULT_SESSION_STATE;
       },
@@ -159,6 +217,8 @@ export const useChatStore = create<ChatState>()(
         currentSessionKey: state.currentSessionKey,
         messages: state.messages,
         showToolMessages: state.showToolMessages,
+        showBookmarkedOnly: state.showBookmarkedOnly,
+        bookmarkedMessages: state.bookmarkedMessages,
       }),
     }
   )

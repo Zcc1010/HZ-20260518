@@ -10,19 +10,28 @@ import { ChatInput } from "./ChatInput";
 import { useRevokeMessage } from "../../hooks/useSessions";
 import { MessageSquare, BrainCircuit } from "lucide-react";
 
-export function ChatWindow() {
+interface ChatWindowProps {
+  urlSessionKey?: string;
+  isLoading?: boolean;
+}
+
+export function ChatWindow({ urlSessionKey, isLoading }: ChatWindowProps = {}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const {
     currentSessionKey,
     messages,
     showToolMessages,
+    showBookmarkedOnly,
     addMessage,
     setWaiting,
     setProgress,
     setMessages,
     setCurrentSession,
     toggleToolMessages,
+    toggleBookmarkedOnly,
+    toggleBookmark,
+    markFeedbackSubmitted,
   } = useChatStore();
 
   // Read per-session state for the active session
@@ -33,16 +42,16 @@ export function ChatWindow() {
   const isWaiting = sessionState.isWaiting;
   const progressText = sessionState.progressText;
 
-  const visibleMessages = showToolMessages
-    ? messages
-    : messages.filter((m) => {
-        if (m.role !== "tool" && m.role !== "sub_tool" && m.role !== "system") return true;
-        // Keep tool messages that produced artifacts so previews are still shown
-        if (m.role === "tool" || m.role === "sub_tool") {
-          return extractArtifactPaths(m.content).length > 0;
-        }
-        return false;
-      });
+  const visibleMessages = messages.filter((m) => {
+    if (!showToolMessages) {
+      if (m.role === "tool" || m.role === "sub_tool") {
+        if (!extractArtifactPaths(m.content).length) return false;
+      }
+      if (m.role === "system") return false;
+    }
+    if (showBookmarkedOnly && !m.bookmarked) return false;
+    return true;
+  });
 
   const wsRef = useRef<ChatWebSocket | null>(null);
   const assistantMsgIdsRef = useRef<Record<string, string>>({});
@@ -120,7 +129,8 @@ export function ChatWindow() {
       };
 
       if (msg.type === "session_info") {
-        if (msg.session_key && msg.session_key !== currentKey) {
+        // Don't override session if we're navigating from a URL (e.g. feedback page link)
+        if (msg.session_key && msg.session_key !== currentKey && !urlSessionKey) {
           setCurrentSession(msg.session_key);
         }
       } else if (msg.type === "stream_start") {
@@ -276,6 +286,25 @@ export function ChatWindow() {
     <div className="flex flex-1 min-h-0 flex-col">
       <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-6">
         {messages.length === 0 ? (
+          isLoading ? (
+            <div className="flex min-h-[420px] flex-col gap-4 p-6">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 shrink-0 rounded-full bg-slate-200 animate-pulse" />
+                <div className="h-4 w-48 rounded bg-slate-200 animate-pulse" />
+              </div>
+              <div className="flex items-center gap-3 justify-end">
+                <div className="h-4 w-32 rounded bg-slate-200 animate-pulse" />
+                <div className="h-8 w-8 shrink-0 rounded-full bg-slate-200 animate-pulse" />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 shrink-0 rounded-full bg-slate-200 animate-pulse" />
+                <div className="space-y-2">
+                  <div className="h-4 w-64 rounded bg-slate-200 animate-pulse" />
+                  <div className="h-4 w-40 rounded bg-slate-200 animate-pulse" />
+                </div>
+              </div>
+            </div>
+          ) : (
           <div
             className="brand-chat-shell flex min-h-[420px] flex-col justify-between overflow-hidden rounded-[28px] border border-white/60 px-6 py-7 shadow-[var(--shadow-card)]"
             style={{
@@ -309,6 +338,7 @@ export function ChatWindow() {
               </div>
             </div>
           </div>
+          )
         ) : (
           <div className="space-y-4">
             {visibleMessages.map((msg) => (
@@ -316,6 +346,9 @@ export function ChatWindow() {
                 key={msg.id}
                 message={msg}
                 onRevoke={handleRevoke}
+                onToggleBookmark={toggleBookmark}
+                onMarkFeedbackSubmitted={markFeedbackSubmitted}
+                sessionKey={currentSessionKey ?? ""}
                 artifactOnly={!showToolMessages && (msg.role === "tool" || msg.role === "sub_tool")}
               />
             ))}
@@ -346,6 +379,8 @@ export function ChatWindow() {
         isConnected={isConnected}
         showToolMessages={showToolMessages}
         onToggleToolMessages={toggleToolMessages}
+        showBookmarkedOnly={showBookmarkedOnly}
+        onToggleBookmarkedOnly={toggleBookmarkedOnly}
       />
     </div>
   );

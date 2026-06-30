@@ -11,11 +11,14 @@ import type { AttachmentInfo, ChatMessage } from "../../stores/chatStore";
 import { ToolCallCard } from "./ToolCallCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ArtifactPreview } from "./ArtifactPreview";
-import { Info, ChevronDown, ChevronRight, CheckCircle2, XCircle, BrainCircuit, Copy, Check, Undo2, X, Download, FileText, User } from "lucide-react";
+import { Info, ChevronDown, ChevronRight, CheckCircle2, XCircle, BrainCircuit, Copy, Check, Undo2, X, Download, FileText, User, Bookmark, BookmarkCheck, Flag } from "lucide-react";
 
 interface MessageBubbleProps {
   message: ChatMessage;
   onRevoke?: (messageId: string) => void;
+  onToggleBookmark?: (messageId: string) => void;
+  onMarkFeedbackSubmitted?: (messageId: string) => void;
+  sessionKey?: string;
   /** When true, only artifact preview cards are rendered (tool call details hidden) */
   artifactOnly?: boolean;
 }
@@ -358,7 +361,7 @@ function ToolMessageWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function MessageBubble({ message, onRevoke, artifactOnly }: MessageBubbleProps) {
+export function MessageBubble({ message, onRevoke, onToggleBookmark, onMarkFeedbackSubmitted, sessionKey, artifactOnly }: MessageBubbleProps) {
   // Don't render anything for empty/whitespace messages
   if (!message.content?.trim() && !message.toolCalls?.length && !message.attachments?.length && !message.isStreaming) {
     return null;
@@ -426,6 +429,9 @@ export function MessageBubble({ message, onRevoke, artifactOnly }: MessageBubble
   const parts = splitThinking(message.content ?? "");
   const [copied, setCopied] = useState(false);
   const [confirmingRevoke, setConfirmingRevoke] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackType, setFeedbackType] = useState("");
+  const [feedbackDesc, setFeedbackDesc] = useState("");
   const { t } = useTranslation();
 
   const copyContent = () => {
@@ -436,8 +442,32 @@ export function MessageBubble({ message, onRevoke, artifactOnly }: MessageBubble
     });
   };
 
+  const submitFeedback = async () => {
+    if (!feedbackType) return;
+    try {
+      const resp = await fetch(withBasePath("/api/chat/feedback"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_key: sessionKey ?? "",
+          message_id: message.id,
+          role: message.role,
+          message_content: message.content?.slice(0, 2000) ?? "",
+          issue_type: feedbackType,
+          description: feedbackDesc,
+        }),
+      });
+      if (resp.ok) {
+        onMarkFeedbackSubmitted?.(message.id);
+        setShowFeedback(false);
+        setFeedbackType("");
+        setFeedbackDesc("");
+      }
+    } catch { /* ignore */ }
+  };
+
   return (
-    <div className={cn("group flex gap-3 px-4", isUser ? "flex-row-reverse" : "flex-row")}>
+    <div className={cn("group flex gap-3 px-4 relative", isUser ? "flex-row-reverse" : "flex-row", message.bookmarked && "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[3px] before:rounded-full before:bg-[#298c88]/60")}>
       {/* Avatar */}
       <div className={cn(
         "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold select-none",
@@ -503,6 +533,80 @@ export function MessageBubble({ message, onRevoke, artifactOnly }: MessageBubble
           <span className="text-[11px] text-muted-foreground/60">
             {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
+          {!message.isStreaming && onToggleBookmark && (
+            <button
+              onClick={() => onToggleBookmark(message.id)}
+              className={cn(
+                "transition-opacity p-0.5 rounded",
+                message.bookmarked
+                  ? "text-[#298c88] opacity-100"
+                  : "opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-[#298c88]"
+              )}
+              aria-label="Bookmark message"
+            >
+              {message.bookmarked
+                ? <BookmarkCheck className="h-3 w-3" />
+                : <Bookmark className="h-3 w-3" />}
+            </button>
+          )}
+          {!message.isStreaming && !isUser && onMarkFeedbackSubmitted && (
+            message.feedbackSubmitted ? (
+              <span className="text-[11px] text-emerald-500/80 flex items-center gap-0.5">
+                <Check className="h-3 w-3" /> 已反馈
+              </span>
+            ) : (
+              <span className="relative">
+                <button
+                  onClick={() => setShowFeedback((v) => !v)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/50 hover:text-amber-500 p-0.5 rounded"
+                  aria-label="Report issue"
+                >
+                  <Flag className="h-3 w-3" />
+                </button>
+                {showFeedback && (
+                  <div className="fixed inset-0 z-50" onClick={() => setShowFeedback(false)}>
+                    <div
+                      className="absolute w-64 rounded-xl border bg-white p-3 shadow-lg space-y-2"
+                      style={{ bottom: 60, right: 16 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <p className="text-xs font-medium text-slate-700">反馈问题类型</p>
+                      <select
+                        value={feedbackType}
+                        onChange={(e) => setFeedbackType(e.target.value)}
+                        className="w-full rounded-lg border px-2 py-1.5 text-xs bg-white"
+                      >
+                        <option value="">请选择</option>
+                        <option value="wrong">回答错误</option>
+                        <option value="outdated">信息过时</option>
+                        <option value="tool_error">工具调用失败</option>
+                        <option value="format">格式问题</option>
+                        <option value="other">其他</option>
+                      </select>
+                      <textarea
+                        value={feedbackDesc}
+                        onChange={(e) => setFeedbackDesc(e.target.value)}
+                        placeholder="补充说明（可选）"
+                        rows={2}
+                        className="w-full rounded-lg border px-2 py-1.5 text-xs resize-none"
+                      />
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          onClick={() => setShowFeedback(false)}
+                          className="px-2 py-1 text-xs rounded-lg text-muted-foreground hover:bg-muted"
+                        >取消</button>
+                        <button
+                          onClick={submitFeedback}
+                          disabled={!feedbackType}
+                          className="px-2 py-1 text-xs rounded-lg bg-[#298c88] text-white hover:bg-[#237a74] disabled:opacity-40"
+                        >提交</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </span>
+            )
+          )}
           {!message.isStreaming && (
             <button
               onClick={copyContent}

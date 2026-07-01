@@ -24,7 +24,10 @@ const APPS: AppItem[] = [
 export default function AgentPlayground() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [selectedAppId, setSelectedAppId] = useState<AppId>("wave-record-parser");
+  const [selectedAppId, setSelectedAppId] = useState<AppId>(() => {
+    const saved = localStorage.getItem("agentplayground_selectedAppId");
+    return saved === "setting-check" ? saved : "wave-record-parser";
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
@@ -69,7 +72,7 @@ export default function AgentPlayground() {
                 return (
                   <button
                     key={app.id}
-                    onClick={() => setSelectedAppId(app.id)}
+                    onClick={() => { setSelectedAppId(app.id); localStorage.setItem("agentplayground_selectedAppId", app.id); }}
                     className={cn(
                       "flex items-center rounded-xl text-left transition-all duration-200",
                       sidebarCollapsed ? "w-12 h-12 justify-center p-0" : "w-full gap-3 px-3 py-2.5",

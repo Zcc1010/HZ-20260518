@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, FileDown, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, FileDown, X, Zap, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
+import { Input } from "../../ui/input";
 import { cn } from "../../../lib/utils";
 import { withBasePath } from "../../../lib/basePath";
 import { MarkdownRenderer } from "../../shared/MarkdownRenderer";
@@ -68,6 +70,7 @@ const PAGE_SIZE = 20;
 
 export function SettingCheckWorkspace() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [jobs, setJobs] = useState<SettingCheckJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,9 +86,17 @@ export function SettingCheckWorkspace() {
   const [deleting, setDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const [stationFilter, setStationFilter] = useState("");
+  const [deviceFilter, setDeviceFilter] = useState("");
 
-  const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
-  const paginatedJobs = jobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const filteredJobs = jobs.filter((j) => {
+    if (stationFilter && !(j.station ?? "").toLowerCase().includes(stationFilter.toLowerCase())) return false;
+    if (deviceFilter && !(j.device ?? "").toLowerCase().includes(deviceFilter.toLowerCase())) return false;
+    return true;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / PAGE_SIZE));
+  const paginatedJobs = filteredJobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   useEffect(() => {
     fetchJobs()
@@ -103,7 +114,9 @@ export function SettingCheckWorkspace() {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [jobs.length, totalPages, currentPage]);
+  }, [filteredJobs.length, totalPages, currentPage]);
+
+  useEffect(() => { setCurrentPage(1); }, [stationFilter, deviceFilter]);
 
   useEffect(() => {
     const jobIds = new Set(jobs.map((j) => j.id));
@@ -289,8 +302,47 @@ export function SettingCheckWorkspace() {
           </div>
         )}
 
+        {/* 筛选栏 */}
+        {!loading && !error && jobs.length > 0 && (
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 max-w-[240px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#888]" />
+              <input
+                type="text"
+                value={stationFilter}
+                onChange={(e) => { setStationFilter(e.target.value); setCurrentPage(1); }}
+                placeholder="筛选厂站..."
+                className="w-full h-9 pl-9 pr-3 rounded-lg border border-[#e0e0e0] bg-white text-sm text-[#333] placeholder:text-[#aaa] focus:outline-none focus:border-[#298c88] focus:ring-1 focus:ring-[#298c88]/30"
+              />
+            </div>
+            <div className="relative flex-1 max-w-[240px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#888]" />
+              <input
+                type="text"
+                value={deviceFilter}
+                onChange={(e) => { setDeviceFilter(e.target.value); setCurrentPage(1); }}
+                placeholder="筛选设备..."
+                className="w-full h-9 pl-9 pr-3 rounded-lg border border-[#e0e0e0] bg-white text-sm text-[#333] placeholder:text-[#aaa] focus:outline-none focus:border-[#298c88] focus:ring-1 focus:ring-[#298c88]/30"
+              />
+            </div>
+            {(stationFilter || deviceFilter) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setStationFilter(""); setDeviceFilter(""); setCurrentPage(1); }}
+                className="text-[#888] hover:text-[#333] h-9 px-3"
+              >
+                清除
+              </Button>
+            )}
+            <span className="text-xs text-[#888] ml-auto">
+              {filteredJobs.length} / {jobs.length} 条
+            </span>
+          </div>
+        )}
+
         {!loading && !error && (
-          <div className="rounded-[28px] border border-[#e0e0e0] bg-white shadow-md overflow-hidden flex flex-col" style={{ height: "calc(100vh - 200px)" }}>
+          <div className="rounded-[28px] border border-[#e0e0e0] bg-white shadow-md overflow-hidden flex flex-col" style={{ height: "calc(100vh - 252px)" }}>
             <div className="flex-1 overflow-auto">
               <table className="w-full text-sm border-separate border-spacing-0" style={{ minWidth: 700 }}>
                 <thead className="bg-[#0d5d57] sticky top-0 z-10">
@@ -449,15 +501,27 @@ export function SettingCheckWorkspace() {
                             </span>
                           )}
                         </td>
-                        <td className="px-5 py-4 w-[80px]">
-                          <button
-                            type="button"
-                            onClick={() => setDeleteTarget(job)}
-                            className="inline-flex items-center text-[#999] hover:text-[#d44] transition-colors"
-                            title={t("agentPlayground.table.delete")}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                        <td className="px-5 py-4 w-[100px]">
+                          <div className="flex items-center gap-2">
+                            {job.status === "completed" && job.preview_url && (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/setting-check/${job.id}`)}
+                                className="inline-flex items-center text-[#298c88] hover:text-[#0d5d57] transition-colors"
+                                title="AI 对话"
+                              >
+                                <Zap className="h-4 w-4" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget(job)}
+                              className="inline-flex items-center text-[#999] hover:text-[#d44] transition-colors"
+                              title={t("agentPlayground.table.delete")}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                       );
@@ -470,7 +534,7 @@ export function SettingCheckWorkspace() {
             {jobs.length > 0 && (
               <div className="flex items-center justify-between border-t border-[#e8f0f0] bg-[#f0f7fa]/50 px-5 py-3">
                 <p className="text-xs text-[#666]">
-                  共 {jobs.length} 条记录，第 {currentPage}/{totalPages} 页
+                  共 {filteredJobs.length} 条记录{filteredJobs.length !== jobs.length ? `（筛选自 ${jobs.length} 条）` : ""}，第 {currentPage}/{totalPages} 页
                 </p>
                 <div className="flex items-center gap-1">
                   <button
@@ -597,7 +661,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../ui/dialog";
-import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 
 interface CreateSettingCheckDialogProps {

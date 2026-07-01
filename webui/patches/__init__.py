@@ -15,11 +15,13 @@ skills      [Skills]      Honour .disabled_skills.json from the WebUI toggle.
 subagent    [SubAgent]    Push tool-call progress to WebUI / external channels.
 token_estimation [TokenEstimation] Fail fast on offline tiktoken misses.
 ledger_tool [LedgerTool]  Register ledger_query tool for equipment queries.
+status_tool [StatusTool]  Register status_query tool for running status queries.
+important_warn_tool [ImportantWarnTool] Register important_warn_query tool for alarm queries.
 """
 
 from __future__ import annotations
 
-from webui.patches import channels, config, ledger_tool, mcp_dynamic, network, prompt, provider, session, skills, subagent, token_estimation
+from webui.patches import channels, config, important_warn_tool, ledger_tool, mcp_dynamic, network, prompt, provider, session, skills, status_tool, subagent, token_estimation
 
 
 def apply_all() -> None:
@@ -35,3 +37,5 @@ def apply_all() -> None:
     skills.apply()
     subagent.apply()
     ledger_tool.apply()
+    status_tool.apply()
+    important_warn_tool.apply()

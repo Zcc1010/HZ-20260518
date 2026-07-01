@@ -16,6 +16,7 @@ const Users = lazy(() => import("./pages/Users"));
 const SystemConfig = lazy(() => import("./pages/SystemConfig"));
 const TripBriefingPage = lazy(() => import("./pages/TripBriefingPage"));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
+const SettingCheckChatPage = lazy(() => import("./pages/SettingCheckChatPage"));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token, authlessEnabled } = useAuthStore((s) => ({
@@ -185,6 +186,10 @@ export default function App() {
       <Route
         path="trip-briefing/:jobId"
         element={<TripBriefingPage />}
+      />
+      <Route
+        path="setting-check/:jobId"
+        element={<SettingCheckChatPage />}
       />
       <Route path="*" element={<Navigate to={defaultPrivatePath} replace />} />
     </Routes>

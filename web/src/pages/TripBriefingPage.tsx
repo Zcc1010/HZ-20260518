@@ -111,6 +111,7 @@ export default function TripBriefingPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const handleWsMessageRef = useRef<(msg: WsMessage) => void>(() => {});
   const contextSentRef = useRef(false);
+  const jobRef = useRef<WaveRecordJob | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [chatInput, setChatInput] = useState("");
 
@@ -258,6 +259,11 @@ export default function TripBriefingPage() {
       });
   }, [jobId, startPolling]);
 
+  // Keep jobRef in sync with job state
+  useEffect(() => {
+    jobRef.current = job;
+  }, [job]);
+
   // --- Clear chat when entering ---
   useEffect(() => {
     useChatStore.getState().clearMessages();
@@ -337,6 +343,17 @@ export default function TripBriefingPage() {
         setWaiting(false, targetKey);
         patchStreamingMessage({ isStreaming: false });
         delete assistantMsgIdsRef.current[targetKey];
+        // 检测报告是否被修改，自动刷新左侧预览
+        try {
+          const state = useChatStore.getState();
+          const lastAssistant = [...state.messages].reverse().find((m) => m.role === "assistant");
+          if (lastAssistant && /已更新|已写回|已保存|已修改|已成功/.test(lastAssistant.content)) {
+            const currentJob = jobRef.current;
+            if (currentJob?.preview_url) {
+              fetchPreview(currentJob.preview_url).then((content) => setPreviewContent(content));
+            }
+          }
+        } catch { /* ignore */ }
       } else if (msg.type === "error") {
         setProgress("", targetKey);
         setWaiting(false, targetKey);
@@ -386,6 +403,7 @@ export default function TripBriefingPage() {
     let ctx =
       `以下是跳闸简报的完整内容，请基于这份简报回答后续问题。\n\n` +
       `--- 简报开始 ---\n${previewContent}\n--- 简报结束 ---\n\n` +
+      `任务 ID：${job?.id || jobId}\n` +
       `站点：${displayStation}\n` +
       `设备：${displayDevice}\n\n`;
     ctx += `工作区中已加载本次录波的源文件（COMTRADE格式），根目录为：跳闸简报/录波源文件/\n`;

@@ -60,6 +60,21 @@ class _StreamEventEmitter:
         self.started = False
 
 
+def _friendly_error(response: str) -> str:
+    """Replace raw LLM error payloads with user-friendly messages."""
+    if not response:
+        return response
+    text = response.strip()
+    # Detect known error patterns
+    if "1305" in text and "访问量过大" in text:
+        return "当前 AI 服务访问量过大，请稍后再试。"
+    if "LLM returned error" in text:
+        return "AI 服务暂时不可用，请稍后再试。"
+    if text.startswith("Error:") and "rate" in text.lower():
+        return "当前请求过于频繁，请稍后再试。"
+    return response
+
+
 def _ensure_message_tool_patched(container: Any) -> None:
     """One-time patch of the AgentLoop's MessageTool send_callback."""
     global _message_tool_patched
@@ -453,6 +468,7 @@ async def ws_chat(websocket: WebSocket) -> None:
                         result = await container.agent.process_direct(msg, **process_kwargs)
                         # nightly returns OutboundMessage; extract .content
                         response = getattr(result, "content", result) if result else ""
+                        response = _friendly_error(response)
                         captured_content, attachments = _collect_captured_web_reply(container, capture_q)
                         if not response:
                             response = captured_content

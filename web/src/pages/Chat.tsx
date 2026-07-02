@@ -62,7 +62,7 @@ export default function Chat() {
   // On mobile: track whether the user is viewing the chat window (true) or session list (false)
   const mobileShowChat = useChatStore((s) => s.mobileShowChat);
   const setMobileShowChat = useChatStore((s) => s.setMobileShowChat);
-  const { currentSessionKey, setCurrentSession, setMessages, applyBookmarks } = useChatStore();
+  const { currentSessionKey, setCurrentSession, setMessages } = useChatStore();
   const sessionStates = useChatStore((s) => s.sessionStates);
   const { data: sessions } = useSessions();
   const { data: sessionMsgs, isSuccess: historyLoaded } = useSessionMessages(currentSessionKey ?? "");
@@ -142,9 +142,8 @@ export default function Chat() {
         m.content.startsWith("⚠️")
     );
     const merged = localToPreserve.length > 0 ? [...msgs, ...localToPreserve] : msgs;
-    const withBookmarks = applyBookmarks(currentSessionKey, merged);
-    lastSetMsgsRef.current = withBookmarks;
-    setMessages(withBookmarks);
+    lastSetMsgsRef.current = merged;
+    setMessages(merged);
   }, [currentSessionKey, historyLoaded, sessionMsgs, setMessages]);
 
   const isAdmin = !authlessEnabled && user?.role === "admin";

@@ -30,8 +30,6 @@ interface ChatInputProps {
   isConnected?: boolean;
   showToolMessages?: boolean;
   onToggleToolMessages?: () => void;
-  showBookmarkedOnly?: boolean;
-  onToggleBookmarkedOnly?: () => void;
 }
 
 export function ChatInput({
@@ -42,8 +40,6 @@ export function ChatInput({
   isConnected = true,
   showToolMessages = false,
   onToggleToolMessages,
-  showBookmarkedOnly = false,
-  onToggleBookmarkedOnly,
 }: ChatInputProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
@@ -217,10 +213,6 @@ export function ChatInput({
                   <DropdownMenuItem onClick={onToggleToolMessages} className="justify-between cursor-pointer">
                     {showToolMessages ? t("chat.hideToolMessages") : t("chat.showToolMessages")}
                     {showToolMessages && <Check className="h-3.5 w-3.5 ml-2 text-primary" />}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onToggleBookmarkedOnly} className="justify-between cursor-pointer">
-                    {showBookmarkedOnly ? "显示全部消息" : "只看标记消息"}
-                    {showBookmarkedOnly && <Check className="h-3.5 w-3.5 ml-2 text-primary" />}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

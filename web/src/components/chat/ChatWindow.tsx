@@ -22,15 +22,12 @@ export function ChatWindow({ urlSessionKey, isLoading }: ChatWindowProps = {}) {
     currentSessionKey,
     messages,
     showToolMessages,
-    showBookmarkedOnly,
     addMessage,
     setWaiting,
     setProgress,
     setMessages,
     setCurrentSession,
     toggleToolMessages,
-    toggleBookmarkedOnly,
-    toggleBookmark,
     markFeedbackSubmitted,
   } = useChatStore();
 
@@ -49,7 +46,6 @@ export function ChatWindow({ urlSessionKey, isLoading }: ChatWindowProps = {}) {
       }
       if (m.role === "system") return false;
     }
-    if (showBookmarkedOnly && !m.bookmarked) return false;
     return true;
   });
 
@@ -346,7 +342,6 @@ export function ChatWindow({ urlSessionKey, isLoading }: ChatWindowProps = {}) {
                 key={msg.id}
                 message={msg}
                 onRevoke={handleRevoke}
-                onToggleBookmark={toggleBookmark}
                 onMarkFeedbackSubmitted={markFeedbackSubmitted}
                 sessionKey={currentSessionKey ?? ""}
                 artifactOnly={!showToolMessages && (msg.role === "tool" || msg.role === "sub_tool")}
@@ -379,8 +374,6 @@ export function ChatWindow({ urlSessionKey, isLoading }: ChatWindowProps = {}) {
         isConnected={isConnected}
         showToolMessages={showToolMessages}
         onToggleToolMessages={toggleToolMessages}
-        showBookmarkedOnly={showBookmarkedOnly}
-        onToggleBookmarkedOnly={toggleBookmarkedOnly}
       />
     </div>
   );

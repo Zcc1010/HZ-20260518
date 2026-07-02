@@ -11,12 +11,11 @@ import type { AttachmentInfo, ChatMessage } from "../../stores/chatStore";
 import { ToolCallCard } from "./ToolCallCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ArtifactPreview } from "./ArtifactPreview";
-import { Info, ChevronDown, ChevronRight, CheckCircle2, XCircle, BrainCircuit, Copy, Check, Undo2, X, Download, FileText, User, Bookmark, BookmarkCheck, Flag } from "lucide-react";
+import { Info, ChevronDown, ChevronRight, CheckCircle2, XCircle, BrainCircuit, Copy, Check, Undo2, X, Download, FileText, User, Flag } from "lucide-react";
 
 interface MessageBubbleProps {
   message: ChatMessage;
   onRevoke?: (messageId: string) => void;
-  onToggleBookmark?: (messageId: string) => void;
   onMarkFeedbackSubmitted?: (messageId: string) => void;
   sessionKey?: string;
   /** When true, only artifact preview cards are rendered (tool call details hidden) */
@@ -361,7 +360,7 @@ function ToolMessageWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function MessageBubble({ message, onRevoke, onToggleBookmark, onMarkFeedbackSubmitted, sessionKey, artifactOnly }: MessageBubbleProps) {
+export function MessageBubble({ message, onRevoke, onMarkFeedbackSubmitted, sessionKey, artifactOnly }: MessageBubbleProps) {
   // Don't render anything for empty/whitespace messages
   if (!message.content?.trim() && !message.toolCalls?.length && !message.attachments?.length && !message.isStreaming) {
     return null;
@@ -467,7 +466,7 @@ export function MessageBubble({ message, onRevoke, onToggleBookmark, onMarkFeedb
   };
 
   return (
-    <div className={cn("group flex gap-3 px-4 relative", isUser ? "flex-row-reverse" : "flex-row", message.bookmarked && "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[3px] before:rounded-full before:bg-[#298c88]/60")}>
+    <div className={cn("group flex gap-3 px-4 relative", isUser ? "flex-row-reverse" : "flex-row")}>
       {/* Avatar */}
       <div className={cn(
         "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold select-none",
@@ -533,22 +532,6 @@ export function MessageBubble({ message, onRevoke, onToggleBookmark, onMarkFeedb
           <span className="text-[11px] text-muted-foreground/60">
             {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
-          {!message.isStreaming && onToggleBookmark && (
-            <button
-              onClick={() => onToggleBookmark(message.id)}
-              className={cn(
-                "transition-opacity p-0.5 rounded",
-                message.bookmarked
-                  ? "text-[#298c88] opacity-100"
-                  : "opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-[#298c88]"
-              )}
-              aria-label="Bookmark message"
-            >
-              {message.bookmarked
-                ? <BookmarkCheck className="h-3 w-3" />
-                : <Bookmark className="h-3 w-3" />}
-            </button>
-          )}
           {!message.isStreaming && !isUser && onMarkFeedbackSubmitted && (
             message.feedbackSubmitted ? (
               <span className="text-[11px] text-emerald-500/80 flex items-center gap-0.5">

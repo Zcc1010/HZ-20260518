@@ -123,7 +123,7 @@ class TripBriefingReadTool(Tool):
         external_id = (kwargs.get("external_id") or "").strip()
 
         if not job_id and not station and not external_id:
-            return "请至少提供一个参数：job_id、station 或 external_id"
+            return "错误：请至少提供一个参数：job_id、station 或 external_id"
 
         service = _get_service()
 
@@ -131,20 +131,20 @@ class TripBriefingReadTool(Tool):
         if external_id and not job_id:
             job = service.get_job_by_external_id(external_id)
             if not job:
-                return f"未找到外部事件 ID 为 '{external_id}' 的跳闸简报任务"
+                return f"错误：未找到外部事件 ID 为 '{external_id}' 的跳闸简报任务"
             return self._read_report(service, job)
 
         # 按 job_id 直接读取
         if job_id:
             job = service.get_job(job_id)
             if not job:
-                return f"未找到任务 ID 为 '{job_id}' 的跳闸简报"
+                return f"错误：未找到任务 ID 为 '{job_id}' 的跳闸简报"
             return self._read_report(service, job)
 
         # 按 station 搜索
         jobs = service.search_jobs(station)
         if not jobs:
-            return f"未找到站点 '{station}' 相关的跳闸简报任务"
+            return f"错误：未找到站点 '{station}' 相关的跳闸简报任务"
 
         completed = [j for j in jobs if j.get("status") == "completed"]
         if not completed:
@@ -166,14 +166,14 @@ class TripBriefingReadTool(Tool):
         job_id = job["id"]
         report_path = _find_report_file(service.app_root / "jobs" / job_id)
         if not report_path:
-            return f"任务 {job_id} 已完成但未找到报告文件"
+            return f"错误：任务 {job_id} 已完成但未找到报告文件"
 
         _check_path(report_path)
 
         try:
             content = report_path.read_text(encoding="utf-8")
         except Exception as exc:
-            return f"读取报告文件失败：{exc}"
+            return f"错误：读取报告文件失败：{exc}"
 
         station = job.get("station", "未知")
         device = job.get("device", "未知")
@@ -211,27 +211,27 @@ class TripBriefingWriteTool(Tool):
         content = kwargs.get("content") or ""
 
         if not job_id:
-            return "请提供 job_id 参数"
+            return "错误：请提供 job_id 参数"
         if not section:
-            return "请提供 section 参数（要修改的章节标题关键字）"
-        if not content.strip():
-            return "请提供 content 参数（该章节的新内容）"
+            return "错误：请提供 section 参数（要修改的章节标题关键字）"
+        if content is None:
+            return "错误：请提供 content 参数（该章节的新内容，允许为空字符串）"
 
         service = _get_service()
         job = service.get_job(job_id)
         if not job:
-            return f"未找到任务 ID 为 '{job_id}' 的跳闸简报"
+            return f"错误：未找到任务 ID 为 '{job_id}' 的跳闸简报"
 
         report_path = _find_report_file(service.app_root / "jobs" / job_id)
         if not report_path:
-            return f"任务 {job_id} 未找到报告文件，无法写入"
+            return f"错误：任务 {job_id} 未找到报告文件，无法写入"
 
         _check_path(report_path)
 
         try:
             existing = report_path.read_text(encoding="utf-8")
         except Exception as exc:
-            return f"读取报告文件失败：{exc}"
+            return f"错误：读取报告文件失败：{exc}"
 
         new_full = _replace_section(existing, section, content)
         if new_full is None:
@@ -239,12 +239,12 @@ class TripBriefingWriteTool(Tool):
             import re
             headers = re.findall(r"^## .+", existing, re.MULTILINE)
             header_list = "\n".join(f"  {h}" for h in headers) if headers else "  （无）"
-            return f"未找到包含 '{section}' 的章节。可用章节：\n{header_list}"
+            return f"错误：未找到包含 '{section}' 的章节。可用章节：\n{header_list}"
 
         try:
             report_path.write_text(new_full, encoding="utf-8")
         except Exception as exc:
-            return f"写入报告文件失败：{exc}"
+            return f"错误：写入报告文件失败：{exc}"
 
         # 同步更新 .docx
         docx_path = report_path.with_suffix(".docx")
@@ -258,3 +258,97 @@ class TripBriefingWriteTool(Tool):
         station = job.get("station", "未知")
         device = job.get("device", "未知")
         return f"跳闸简报「{section}」章节已更新：{station} / {device}（{job_id}）"
+
+
+RERUN_TOOL_DESC = """使用原始录波文件重新执行跳闸简报生成。会覆盖原有报告。
+
+参数说明：
+- job_id: 任务 ID（必填）
+
+重新解析会读取任务的原始录波文件，重新运行解析 pipeline 生成新报告。
+"""
+
+
+@tool_parameters(
+    tool_parameters_schema(
+        job_id=StringSchema("任务 ID（必填）"),
+    )
+)
+class TripBriefingRerunTool(Tool):
+    """使用原始录波文件重新执行跳闸简报生成。"""
+
+    @property
+    def name(self) -> str:
+        return "trip_briefing_rerun"
+
+    @property
+    def description(self) -> str:
+        return RERUN_TOOL_DESC
+
+    @property
+    def read_only(self) -> bool:
+        return False
+
+    async def execute(self, **kwargs: Any) -> str:
+        job_id = (kwargs.get("job_id") or "").strip()
+        if not job_id:
+            return "错误：请提供 job_id 参数"
+
+        service = _get_service()
+        job = service.get_job(job_id)
+        if not job:
+            return f"错误：未找到任务 ID 为 '{job_id}' 的跳闸简报任务"
+
+        job_root = service.app_root / "jobs" / job_id
+        _check_path(job_root)
+
+        manifest_path = job_root / "inputs.json"
+        if not manifest_path.exists():
+            return f"错误：任务 {job_id} 缺少 inputs.json，无法重新解析"
+
+        inputs_dir = job_root / "inputs"
+        if not inputs_dir.exists():
+            return f"错误：任务 {job_id} 缺少 inputs 目录，原始文件已丢失"
+
+        # 检查是否有原始文件
+        input_files = list(inputs_dir.iterdir())
+        if not input_files:
+            return f"错误：任务 {job_id} 的 inputs 目录为空，原始文件已丢失"
+
+        # 标记任务为处理中，前端可通过轮询获取进度
+        service.mark_processing(job_id)
+        service.update_progress(job_id, 0, "开始重新解析...")
+
+        def _progress(progress: int, message: str) -> None:
+            service.update_progress(job_id, progress, message)
+
+        try:
+            from webui.services.wave_record_parser.service import execute_job
+            execute_job(service.app_root, job_id, progress_callback=_progress)
+        except Exception as exc:
+            service.update_progress(job_id, 0, f"失败：{exc}")
+            return f"错误：重新解析失败：{exc}"
+
+        # 同步更新 .docx
+        new_report = _find_report_file(service.app_root / "jobs" / job_id)
+        docx_path = None
+        if new_report:
+            docx_path = new_report.with_suffix(".docx")
+            try:
+                from webui.utils.md_to_docx import MdToDocxConverter
+                converter = MdToDocxConverter()
+                converter.convert(new_report.read_text(encoding="utf-8"), docx_path)
+            except Exception:
+                pass
+
+        station = job.get("station", "未知")
+        device = job.get("device", "未知")
+        result = f"跳闸简报已重新生成：{station} / {device}（{job_id}）"
+        files = []
+        if docx_path and docx_path.exists():
+            files.append(str(docx_path))
+        elif new_report:
+            files.append(str(new_report))
+        if files:
+            result += f"\n【必须调用 message 工具发送文件】调用方式：message(content=\"跳闸简报已重新生成\", media={files})。不要把文件路径作为链接展示，必须通过 message 工具发送。"
+        return result

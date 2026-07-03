@@ -62,6 +62,8 @@ export default function SettingCheckChatPage() {
   const [previewContent, setPreviewContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rerunProgress, setRerunProgress] = useState<number | null>(null);
+  const [rerunMessage, setRerunMessage] = useState("");
 
   const displayStation = job?.station || "未知站点";
   const displayDevice = job?.device || "未知设备";
@@ -88,6 +90,7 @@ export default function SettingCheckChatPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const handleWsMessageRef = useRef<(msg: WsMessage) => void>(() => {});
   const contextSentRef = useRef(false);
+  const jobRef = useRef<SettingCheckJob | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [chatInput, setChatInput] = useState("");
 
@@ -116,6 +119,11 @@ export default function SettingCheckChatPage() {
       });
   }, [jobId]);
 
+  // Keep jobRef in sync with job state
+  useEffect(() => {
+    jobRef.current = job;
+  }, [job]);
+
   // --- Clear chat when entering ---
   useEffect(() => {
     useChatStore.getState().clearMessages();
@@ -137,6 +145,31 @@ export default function SettingCheckChatPage() {
     const el = scrollContainerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, progressText]);
+
+  // --- Poll job progress during rerun ---
+  useEffect(() => {
+    if (!isWaiting || !jobId) {
+      setRerunProgress(null);
+      setRerunMessage("");
+      return;
+    }
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(withBasePath(`/api/setting-check/jobs`));
+        if (!res.ok) return;
+        const jobs = await res.json();
+        const current = jobs.find((j: SettingCheckJob) => j.id === jobId);
+        if (current && current.status === "processing") {
+          setRerunProgress(current.progress ?? 0);
+          setRerunMessage(current.progress_message ?? "");
+        } else {
+          setRerunProgress(null);
+          setRerunMessage("");
+        }
+      } catch { /* ignore */ }
+    }, 2000);
+    return () => clearInterval(poll);
+  }, [isWaiting, jobId]);
 
   const handleWsMessage = useCallback(
     (msg: WsMessage) => {
@@ -195,6 +228,17 @@ export default function SettingCheckChatPage() {
         setWaiting(false, targetKey);
         patchStreamingMessage({ isStreaming: false });
         delete assistantMsgIdsRef.current[targetKey];
+        // 检测报告是否被修改，自动刷新左侧预览
+        try {
+          const state = useChatStore.getState();
+          const lastAssistant = [...state.messages].reverse().find((m) => m.role === "assistant");
+          if (lastAssistant && /已更新|已写回|已保存|已修改|已成功|已重新/.test(lastAssistant.content)) {
+            const currentJob = jobRef.current;
+            if (currentJob?.preview_url) {
+              fetchPreview(currentJob.preview_url).then((content) => setPreviewContent(content));
+            }
+          }
+        } catch { /* ignore */ }
       } else if (msg.type === "error") {
         setProgress("", targetKey);
         setWaiting(false, targetKey);
@@ -244,8 +288,13 @@ export default function SettingCheckChatPage() {
     let ctx =
       `以下是定值校核报告的完整内容，请基于这份报告回答后续问题。\n\n` +
       `--- 报告开始 ---\n${previewContent}\n--- 报告结束 ---\n\n` +
+      `任务 ID：${jobId}\n` +
       `站点：${displayStation}\n` +
       `设备：${displayDevice}\n\n`;
+    ctx += `可用工具说明：\n`;
+    ctx += `- setting_check_read(job_id="${jobId}") — 读取当前定值校核报告\n`;
+    ctx += `- setting_check_write(job_id="${jobId}", section="章节标题", content="新内容") — 修改报告的指定章节\n`;
+    ctx += `- setting_check_rerun(job_id="${jobId}") — 使用原始输入文件重新执行定值校核，会覆盖原有报告\n\n`;
     ctx += `用户问题：${userQuestion}`;
     return ctx;
   };
@@ -441,6 +490,27 @@ export default function SettingCheckChatPage() {
                   <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce [animation-delay:300ms]" />
                 </span>
                 <span className="truncate max-w-xs">{progressText}</span>
+              </div>
+            </div>
+          )}
+
+          {isWaiting && rerunProgress !== null && (
+            <div className="mt-3 mx-1">
+              <div className="rounded-xl border border-[#e8f0f0] bg-[#f0f7fa]/80 px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <RefreshCw className="h-3.5 w-3.5 text-[#298c88] animate-spin" />
+                  <span className="text-xs font-medium text-[#298c88]">正在重新校核</span>
+                  <span className="text-xs text-[#888] ml-auto">{rerunProgress}%</span>
+                </div>
+                <div className="h-2 bg-[#e8f0f0] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#298c88] to-[#00706b] transition-all duration-500"
+                    style={{ width: `${rerunProgress}%` }}
+                  />
+                </div>
+                {rerunMessage && (
+                  <p className="mt-1.5 text-xs text-[#666] truncate">{rerunMessage}</p>
+                )}
               </div>
             </div>
           )}

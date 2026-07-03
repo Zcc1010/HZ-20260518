@@ -269,8 +269,13 @@ export function WaveRecordWorkspace() {
       const res = await fetch(withBasePath(`/api/wave-record-parser/jobs/${deleteTarget.id}`), { method: "DELETE" });
       if (res.ok) {
         setJobs((prev) => prev.filter((j) => j.id !== deleteTarget.id));
+        toast.success(`已删除 ${deleteTarget.file_name || deleteTarget.id}`);
         setDeleteTarget(null);
+      } else {
+        toast.error("删除失败");
       }
+    } catch {
+      toast.error("删除失败");
     } finally {
       setDeleting(false);
     }

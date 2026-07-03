@@ -191,8 +191,13 @@ export function SettingCheckWorkspace() {
       const res = await fetch(withBasePath(`/api/setting-check/jobs/${deleteTarget.id}`), { method: "DELETE" });
       if (res.ok) {
         setJobs((prev) => prev.filter((j) => j.id !== deleteTarget.id));
+        toast.success(`已删除 ${deleteTarget.station || deleteTarget.id}`);
         setDeleteTarget(null);
+      } else {
+        toast.error("删除失败");
       }
+    } catch {
+      toast.error("删除失败");
     } finally {
       setDeleting(false);
     }

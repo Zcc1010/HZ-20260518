@@ -83,22 +83,24 @@ def apply() -> None:
     def _init_patched(self, *args, **kwargs):
         _orig_init(self, *args, **kwargs)
         try:
-            from webui.services.trip_briefing.tool import TripBriefingReadTool, TripBriefingWriteTool
+            from webui.services.trip_briefing.tool import TripBriefingReadTool, TripBriefingWriteTool, TripBriefingRerunTool
             self.tools.register(TripBriefingReadTool())
             self.tools.register(TripBriefingWriteTool())
+            self.tools.register(TripBriefingRerunTool())
             _patch_edit_file_redirect(self.tools)
-            logger.debug("TripBriefingTool: registered trip_briefing_read + trip_briefing_write")
+            logger.debug("TripBriefingTool: registered trip_briefing_read + trip_briefing_write + trip_briefing_rerun")
         except Exception as exc:
             logger.error("TripBriefingTool: failed to register in __init__: {}", exc)
 
     def _register_default_tools_patched(self) -> None:
         _orig_register(self)
         try:
-            from webui.services.trip_briefing.tool import TripBriefingReadTool, TripBriefingWriteTool
+            from webui.services.trip_briefing.tool import TripBriefingReadTool, TripBriefingWriteTool, TripBriefingRerunTool
             self.tools.register(TripBriefingReadTool())
             self.tools.register(TripBriefingWriteTool())
+            self.tools.register(TripBriefingRerunTool())
             _patch_edit_file_redirect(self.tools)
-            logger.debug("TripBriefingTool: registered trip_briefing_read + trip_briefing_write")
+            logger.debug("TripBriefingTool: registered trip_briefing_read + trip_briefing_write + trip_briefing_rerun")
         except Exception as exc:
             logger.error("TripBriefingTool: failed to register in _register_default_tools: {}", exc)
 

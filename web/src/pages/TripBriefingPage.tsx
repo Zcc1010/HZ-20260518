@@ -84,6 +84,8 @@ export default function TripBriefingPage() {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [rerunProgress, setRerunProgress] = useState<number | null>(null);
+  const [rerunMessage, setRerunMessage] = useState("");
 
   // Display name falls back to route equipmentName when job data is empty
   const displayStation = job?.station || equipmentName.split(" ")[0] || "未知站点";
@@ -286,6 +288,31 @@ export default function TripBriefingPage() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, progressText]);
 
+  // --- Poll job progress during rerun ---
+  useEffect(() => {
+    if (!isWaiting || !jobId) {
+      setRerunProgress(null);
+      setRerunMessage("");
+      return;
+    }
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(withBasePath(`/api/wave-record-parser/jobs`));
+        if (!res.ok) return;
+        const jobs = await res.json();
+        const current = jobs.find((j: WaveRecordJob) => j.id === jobId);
+        if (current && current.status === "processing") {
+          setRerunProgress(current.progress ?? 0);
+          setRerunMessage(current.progress_message ?? "");
+        } else {
+          setRerunProgress(null);
+          setRerunMessage("");
+        }
+      } catch { /* ignore */ }
+    }, 2000);
+    return () => clearInterval(poll);
+  }, [isWaiting, jobId]);
+
   const handleWsMessage = useCallback(
     (msg: WsMessage) => {
       const msgSessionKey = msg.session_key;
@@ -347,7 +374,7 @@ export default function TripBriefingPage() {
         try {
           const state = useChatStore.getState();
           const lastAssistant = [...state.messages].reverse().find((m) => m.role === "assistant");
-          if (lastAssistant && /已更新|已写回|已保存|已修改|已成功/.test(lastAssistant.content)) {
+          if (lastAssistant && /已更新|已写回|已保存|已修改|已成功|已重新/.test(lastAssistant.content)) {
             const currentJob = jobRef.current;
             if (currentJob?.preview_url) {
               fetchPreview(currentJob.preview_url).then((content) => setPreviewContent(content));
@@ -665,6 +692,27 @@ export default function TripBriefingPage() {
                   <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce [animation-delay:300ms]" />
                 </span>
                 <span className="truncate max-w-xs">{progressText}</span>
+              </div>
+            </div>
+          )}
+
+          {isWaiting && rerunProgress !== null && (
+            <div className="mt-3 mx-1">
+              <div className="rounded-xl border border-[#e8f0f0] bg-[#f0f7fa]/80 px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <RefreshCw className="h-3.5 w-3.5 text-[#298c88] animate-spin" />
+                  <span className="text-xs font-medium text-[#298c88]">正在重新解析</span>
+                  <span className="text-xs text-[#888] ml-auto">{rerunProgress}%</span>
+                </div>
+                <div className="h-2 bg-[#e8f0f0] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#298c88] to-[#00706b] transition-all duration-500"
+                    style={{ width: `${rerunProgress}%` }}
+                  />
+                </div>
+                {rerunMessage && (
+                  <p className="mt-1.5 text-xs text-[#666] truncate">{rerunMessage}</p>
+                )}
               </div>
             </div>
           )}

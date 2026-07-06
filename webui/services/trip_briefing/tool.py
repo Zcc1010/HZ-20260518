@@ -290,6 +290,8 @@ class TripBriefingRerunTool(Tool):
         return False
 
     async def execute(self, **kwargs: Any) -> str:
+        import asyncio
+
         job_id = (kwargs.get("job_id") or "").strip()
         if not job_id:
             return "错误：请提供 job_id 参数"
@@ -324,7 +326,7 @@ class TripBriefingRerunTool(Tool):
 
         try:
             from webui.services.wave_record_parser.service import execute_job
-            execute_job(service.app_root, job_id, progress_callback=_progress)
+            await asyncio.to_thread(execute_job, service.app_root, job_id, _progress)
         except Exception as exc:
             service.update_progress(job_id, 0, f"失败：{exc}")
             return f"错误：重新解析失败：{exc}"
@@ -338,6 +340,14 @@ class TripBriefingRerunTool(Tool):
                 from webui.utils.md_to_docx import MdToDocxConverter
                 converter = MdToDocxConverter()
                 converter.convert(new_report.read_text(encoding="utf-8"), docx_path)
+            except Exception:
+                pass
+
+        # 标记任务完成，前端轮询会更新状态
+        result_file = docx_path if docx_path and docx_path.exists() else new_report
+        if result_file:
+            try:
+                service.mark_completed(job_id, result_file)
             except Exception:
                 pass
 

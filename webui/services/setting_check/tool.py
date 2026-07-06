@@ -280,6 +280,7 @@ class SettingCheckRerunTool(Tool):
         return False
 
     async def execute(self, **kwargs: Any) -> str:
+        import asyncio
         import json
 
         job_id = (kwargs.get("job_id") or "").strip()
@@ -326,7 +327,7 @@ class SettingCheckRerunTool(Tool):
 
         try:
             from webui.services.setting_check.service import execute_setting_check
-            execute_setting_check(job_root, setting_paths, calc_paths, progress_callback=_progress)
+            await asyncio.to_thread(execute_setting_check, job_root, setting_paths, calc_paths, _progress)
         except Exception as exc:
             service.update_progress(job_id, 0, f"失败：{exc}")
             return f"错误：重新校核失败：{exc}"
@@ -340,6 +341,14 @@ class SettingCheckRerunTool(Tool):
                 from webui.utils.md_to_docx import MdToDocxConverter
                 converter = MdToDocxConverter()
                 converter.convert(new_report.read_text(encoding="utf-8"), docx_path)
+            except Exception:
+                pass
+
+        # 标记任务完成，前端轮询会更新状态
+        result_file = docx_path if docx_path and docx_path.exists() else new_report
+        if result_file:
+            try:
+                service.mark_completed(job_id, result_file)
             except Exception:
                 pass
 

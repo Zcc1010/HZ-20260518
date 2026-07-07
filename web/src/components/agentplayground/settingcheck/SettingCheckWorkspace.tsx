@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, FileDown, X, Zap, Search } from "lucide-react";
+import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, FileDown, X, Zap, Search, FolderOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
@@ -277,6 +277,14 @@ export function SettingCheckWorkspace() {
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
             <Button
+              onClick={() => navigate('/setting-check-v2')}
+              variant="outline"
+              className="gap-2 border-[#84aca9] bg-[#f0f7fa] text-[#00706b] hover:bg-[#e0f0f0]"
+            >
+              <FolderOpen className="h-4 w-4" />
+              文件管理
+            </Button>
+            <Button
               onClick={handleExport}
               disabled={exporting}
               className="gap-2 bg-[#00706b] hover:bg-[#0d5d57] text-white border border-[#00706b]"
@@ -511,7 +519,7 @@ export function SettingCheckWorkspace() {
                             {job.status === "completed" && job.preview_url && (
                               <button
                                 type="button"
-                                onClick={() => navigate(`/setting-check/${job.id}`)}
+                                onClick={() => navigate(`/setting-check-v2?jobId=${job.id}`)}
                                 className="inline-flex items-center text-[#298c88] hover:text-[#0d5d57] transition-colors"
                                 title="AI 对话"
                               >
@@ -680,6 +688,7 @@ const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB
 // 支持的文件格式
 const SETTING_FILE_EXTENSIONS = [".xls", ".xlsx", ".doc", ".docx", ".pdf", ".txt", ".md"];
 const CALC_FILE_EXTENSIONS = [".doc", ".docx", ".pdf", ".txt", ".md", ".xls", ".xlsx"];
+const MANUAL_FILE_EXTENSIONS = [".doc", ".docx", ".pdf", ".txt", ".md"];
 
 function hasExtension(filename: string, extensions: string[]): boolean {
   const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
@@ -731,6 +740,7 @@ async function createJob(
   calcUploadIds: string[],
   station: string,
   device: string,
+  manualUploadIds: string[] = [],
 ): Promise<SettingCheckJob> {
   const completeRes = await fetch(
     withBasePath("/api/setting-check/uploads/complete"),
@@ -742,6 +752,7 @@ async function createJob(
         device,
         setting_upload_ids: settingUploadIds,
         calc_upload_ids: calcUploadIds,
+        manual_upload_ids: manualUploadIds,
       }),
     },
   );
@@ -756,8 +767,10 @@ function CreateSettingCheckDialog({ open, onOpenChange, onSuccess, onPreview }: 
   const { t } = useTranslation();
   const settingInputRef = useRef<HTMLInputElement>(null);
   const calcInputRef = useRef<HTMLInputElement>(null);
+  const manualInputRef = useRef<HTMLInputElement>(null);
   const [settingFiles, setSettingFiles] = useState<File[]>([]);
   const [calcFiles, setCalcFiles] = useState<File[]>([]);
+  const [manualFiles, setManualFiles] = useState<File[]>([]);
   const [station, setStation] = useState<string>("");
   const [device, setDevice] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
@@ -789,13 +802,14 @@ function CreateSettingCheckDialog({ open, onOpenChange, onSuccess, onPreview }: 
     setUploadProgress(0);
 
     try {
+      const totalFiles = settingFiles.length + calcFiles.length + manualFiles.length;
+
       // Upload all setting files
       const settingUploadIds: string[] = [];
       for (let i = 0; i < settingFiles.length; i++) {
         const file = settingFiles[i];
         setUploadingFileIndex(`定值单 ${i + 1}/${settingFiles.length}: ${file.name}`);
         const uploadId = await uploadFile(file, (progress) => {
-          const totalFiles = settingFiles.length + calcFiles.length;
           const baseProgress = (i / totalFiles) * 100;
           setUploadProgress(Math.round(baseProgress + (progress / totalFiles)));
         });
@@ -808,19 +822,31 @@ function CreateSettingCheckDialog({ open, onOpenChange, onSuccess, onPreview }: 
         const file = calcFiles[i];
         setUploadingFileIndex(`计算书 ${i + 1}/${calcFiles.length}: ${file.name}`);
         const uploadId = await uploadFile(file, (progress) => {
-          const totalFiles = settingFiles.length + calcFiles.length;
           const baseProgress = ((settingFiles.length + i) / totalFiles) * 100;
           setUploadProgress(Math.round(baseProgress + (progress / totalFiles)));
         });
         calcUploadIds.push(uploadId);
       }
 
+      // Upload all manual files
+      const manualUploadIds: string[] = [];
+      for (let i = 0; i < manualFiles.length; i++) {
+        const file = manualFiles[i];
+        setUploadingFileIndex(`说明书 ${i + 1}/${manualFiles.length}: ${file.name}`);
+        const uploadId = await uploadFile(file, (progress) => {
+          const baseProgress = ((settingFiles.length + calcFiles.length + i) / totalFiles) * 100;
+          setUploadProgress(Math.round(baseProgress + (progress / totalFiles)));
+        });
+        manualUploadIds.push(uploadId);
+      }
+
       setUploadingFileIndex("正在创建任务...");
-      const job = await createJob(settingUploadIds, calcUploadIds, station, device);
+      const job = await createJob(settingUploadIds, calcUploadIds, station, device, manualUploadIds);
       onSuccess(job);
       onOpenChange(false);
       setSettingFiles([]);
       setCalcFiles([]);
+      setManualFiles([]);
       setStation("");
       setDevice("");
     } catch (err) {
@@ -855,12 +881,28 @@ function CreateSettingCheckDialog({ open, onOpenChange, onSuccess, onPreview }: 
     event.target.value = "";
   };
 
+  const handleManualFilesChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    const validFiles = files.filter(f => hasExtension(f.name, MANUAL_FILE_EXTENSIONS));
+    if (validFiles.length !== files.length) {
+      setError("说明书文件格式不正确，支持：doc/docx/pdf/txt/md");
+    } else {
+      setError(null);
+    }
+    setManualFiles(validFiles);
+    event.target.value = "";
+  };
+
   const removeSettingFile = (index: number) => {
     setSettingFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const removeCalcFile = (index: number) => {
     setCalcFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removeManualFile = (index: number) => {
+    setManualFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const formatFileSize = (bytes: number) => {
@@ -995,6 +1037,53 @@ function CreateSettingCheckDialog({ open, onOpenChange, onSuccess, onPreview }: 
                     <button
                       type="button"
                       onClick={() => removeCalcFile(index)}
+                      className="text-[#999] hover:text-[#d44] transition-colors ml-2"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 说明书文件上传 */}
+          <div className="space-y-2">
+            <Label className="text-[#298c88]">
+              说明书文件
+            </Label>
+            <div className="flex items-center gap-3">
+              <input
+                ref={manualInputRef}
+                type="file"
+                multiple
+                accept={MANUAL_FILE_EXTENSIONS.join(",")}
+                className="hidden"
+                onChange={handleManualFilesChange}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => manualInputRef.current?.click()}
+                className="border-[#84aca9] bg-[#f0f7fa] text-[#000] hover:bg-[#e0f0f0]"
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                选择文件
+              </Button>
+              <span className="text-xs text-[#888]">
+                支持 doc/docx/pdf/txt/md 格式（可选）
+              </span>
+            </div>
+            {manualFiles.length > 0 && (
+              <div className="space-y-1 mt-2">
+                {manualFiles.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between bg-[#f0f7fa] rounded px-2 py-1">
+                    <span className="text-sm text-[#555] truncate flex-1">
+                      {file.name} ({formatFileSize(file.size)})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeManualFile(index)}
                       className="text-[#999] hover:text-[#d44] transition-colors ml-2"
                     >
                       <X className="h-4 w-4" />

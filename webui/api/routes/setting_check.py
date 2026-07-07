@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import json
+import shutil
 import zipfile
 from pathlib import Path
 from typing import Annotated
@@ -105,6 +107,7 @@ class CompleteUploadRequest(BaseModel):
     device: str = ""
     setting_upload_ids: list[str] = []
     calc_upload_ids: list[str] = []
+    manual_upload_ids: list[str] = []
 
 
 class CompleteZipUploadRequest(BaseModel):
@@ -136,12 +139,13 @@ async def complete_chunked_upload(
     svc: Annotated[ServiceContainer, Depends(get_services)],
     body: CompleteUploadRequest,
 ) -> SettingCheckJobInfo:
-    """Complete upload from multiple setting files and calc files."""
+    """Complete upload from multiple setting files, calc files, and manual files."""
     ensure_agentplayground_enabled()
     service = get_setting_check_service(svc)
     job = await service.create_job_from_chunked_uploads(
         setting_upload_ids=body.setting_upload_ids,
         calc_upload_ids=body.calc_upload_ids,
+        manual_upload_ids=body.manual_upload_ids,
         station=body.station,
         device=body.device,
         created_by="authless-public",
@@ -179,6 +183,101 @@ async def delete_setting_check_job(
     if not ok:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"ok": True}
+
+
+@router.get("/jobs/{job_id}", response_model=SettingCheckJobInfo)
+async def get_setting_check_job(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    job_id: str,
+) -> SettingCheckJobInfo:
+    ensure_agentplayground_enabled()
+    service = get_setting_check_service(svc)
+    job = service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return SettingCheckJobInfo(**job)
+
+
+class CopyToWorkspaceRequest(BaseModel):
+    workspace: str
+
+
+@router.post("/jobs/{job_id}/copy-to-workspace")
+async def copy_job_to_workspace(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    job_id: str,
+    body: CopyToWorkspaceRequest,
+) -> dict:
+    ensure_agentplayground_enabled()
+    service = get_setting_check_service(svc)
+    job = service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_root = service.app_root / "jobs" / job_id
+    if not job_root.exists():
+        raise HTTPException(status_code=404, detail="Job directory not found")
+
+    # Workspace root: ~/.nanobot/agentplayground/setting-check/workspace/
+    workspace_root = Path.home() / ".nanobot" / "agentplayground" / "setting-check" / "workspace"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+
+    # Create workspace directory directly
+    ws_dir = workspace_root / body.workspace
+    ws_dir.mkdir(parents=True, exist_ok=True)
+
+    # Read manifest to classify files
+    manifest_path = job_root / "inputs.json"
+    setting_names: set[str] = set()
+    calc_names: set[str] = set()
+    manual_names: set[str] = set()
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        setting_names = set(manifest.get("setting_files", []))
+        calc_names = set(manifest.get("calc_files", []))
+        if not calc_names and manifest.get("calc_file"):
+            calc_names = {manifest["calc_file"]}
+        manual_names = set(manifest.get("manual_files", []))
+
+    # Create category directories in workspace
+    for category in ["定值单", "计算书", "说明书", "报告"]:
+        (ws_dir / category).mkdir(parents=True, exist_ok=True)
+
+    # Copy input files to categorized subdirectories
+    inputs_dir = job_root / "inputs"
+    if inputs_dir.exists():
+        for item in inputs_dir.iterdir():
+            if not item.is_file():
+                continue
+            name = item.name
+            if name in setting_names:
+                dest = ws_dir / "定值单" / name
+            elif name in calc_names:
+                dest = ws_dir / "计算书" / name
+            elif name in manual_names:
+                dest = ws_dir / "说明书" / name
+            else:
+                # Fallback: classify by extension/content
+                name_lower = name.lower()
+                if any(kw in name_lower for kw in ["定值单", "setting"]):
+                    dest = ws_dir / "定值单" / name
+                elif any(kw in name_lower for kw in ["计算书", "计算", "整定", "calc"]):
+                    dest = ws_dir / "计算书" / name
+                elif any(kw in name_lower for kw in ["说明书", "说明", "manual"]):
+                    dest = ws_dir / "说明书" / name
+                else:
+                    dest = ws_dir / "定值单" / name
+            shutil.copy2(str(item), str(dest))
+
+    # Copy report files from output directory
+    output_dir = job_root / "output"
+    if output_dir.exists():
+        for item in output_dir.rglob("*"):
+            if item.is_file() and item.suffix.lower() in ('.md', '.docx', '.pdf'):
+                dest = ws_dir / "报告" / item.name
+                shutil.copy2(str(item), str(dest))
+
+    return {"ok": True, "workspace": body.workspace}
 
 
 @router.get("/jobs/{job_id}/files/{file_name}")

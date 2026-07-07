@@ -484,13 +484,14 @@ class SettingCheckService:
         self,
         setting_upload_ids: list[str],
         calc_upload_ids: list[str],
+        manual_upload_ids: list[str] | None = None,
         *,
         station: str | None = None,
         device: str | None = None,
         created_by: str | None = None,
         run_in_background: bool = True,
     ) -> dict[str, Any]:
-        """Create job from multiple setting files and multiple calc files."""
+        """Create job from multiple setting files, calc files, and manual files."""
         setting_paths = []
         setting_names = []
         for upload_id in setting_upload_ids:
@@ -505,14 +506,24 @@ class SettingCheckService:
             calc_paths.append(file_path)
             calc_names.append(file_path.name)
 
+        manual_paths = []
+        manual_names = []
+        for upload_id in (manual_upload_ids or []):
+            file_path = self.chunked_upload.assemble_file(upload_id)
+            manual_paths.append(file_path)
+            manual_names.append(file_path.name)
+
         # Read bytes
         setting_bytes_list = [p.read_bytes() for p in setting_paths]
         calc_bytes_list = [p.read_bytes() for p in calc_paths]
+        manual_bytes_list = [p.read_bytes() for p in manual_paths]
 
         # Cleanup uploads
         for upload_id in setting_upload_ids:
             self.chunked_upload.cleanup(upload_id)
         for upload_id in calc_upload_ids:
+            self.chunked_upload.cleanup(upload_id)
+        for upload_id in (manual_upload_ids or []):
             self.chunked_upload.cleanup(upload_id)
 
         return self._create_job_from_multiple_bytes(
@@ -520,6 +531,8 @@ class SettingCheckService:
             setting_bytes_list=setting_bytes_list,
             calc_names=calc_names,
             calc_bytes_list=calc_bytes_list,
+            manual_names=manual_names,
+            manual_bytes_list=manual_bytes_list,
             station=station,
             device=device,
             created_by=created_by,
@@ -557,12 +570,14 @@ class SettingCheckService:
         setting_bytes_list: list[bytes],
         calc_names: list[str],
         calc_bytes_list: list[bytes],
+        manual_names: list[str] | None = None,
+        manual_bytes_list: list[bytes] | None = None,
         station: str | None,
         device: str | None,
         created_by: str | None,
         run_in_background: bool,
     ) -> dict[str, Any]:
-        """Create job from multiple setting files and multiple calc files."""
+        """Create job from multiple setting files, calc files, and manual files."""
         job_id = uuid.uuid4().hex
         job_root = self._job_root(job_id)
         job_root.mkdir(parents=True, exist_ok=True)
@@ -583,6 +598,13 @@ class SettingCheckService:
             (inputs_dir / safe_name).write_bytes(data)
             safe_calc_names.append(safe_name)
 
+        # Save manual files
+        safe_manual_names = []
+        for name, data in zip(manual_names or [], manual_bytes_list or [], strict=True):
+            safe_name = self._safe_upload_name(name, "manual")
+            (inputs_dir / safe_name).write_bytes(data)
+            safe_manual_names.append(safe_name)
+
         primary_name = station or device or safe_setting_names[0] if safe_setting_names else "setting_check"
 
         # Use first calc file as primary for manifest
@@ -593,6 +615,7 @@ class SettingCheckService:
             setting_files=safe_setting_names,
             calc_file=primary_calc_name,
             calc_files=safe_calc_names,
+            manual_files=safe_manual_names,
         )
 
         return self._persist_created_job(
@@ -617,12 +640,14 @@ class SettingCheckService:
         setting_files: list[str],
         calc_file: str,
         calc_files: list[str] | None = None,
+        manual_files: list[str] | None = None,
     ) -> None:
         manifest = {
             "job_id": job_id,
             "setting_files": setting_files,
             "calc_file": calc_file,
             "calc_files": calc_files if calc_files else [calc_file] if calc_file else [],
+            "manual_files": manual_files or [],
         }
         manifest_path = self._job_root(job_id) / "inputs.json"
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")

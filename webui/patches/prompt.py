@@ -32,6 +32,7 @@ _RUNTIME_RULES = f"""{_PROMPT_RULES_HEADER}
 - 绝对不要把文件路径作为 Markdown 链接展示（例如 `[文件](path)`）。工具返回的文件路径必须通过 `message(..., media=[路径])` 发送，不要作为链接输出在正文中。
 - 当用户要求查看、修改、改写、润色、补充跳闸简报或定值校核报告时，使用专用工具 `trip_briefing_read`/`trip_briefing_write`（跳闸简报）或 `setting_check_read`/`setting_check_write`（定值校核报告）来完成。修改流程：先 read 读取报告，找到要修改的章节标题，再用 write 工具只替换该章节（section 参数填章节标题关键字，content 填该章节新内容）。不需要写回整个报告。
 - 当用户要求"重新解析"、"重新生成"、"重新校核"时，先用 read 工具读取当前报告内容并展示给用户，说明重新执行会覆盖原报告，等用户确认后再调用 `trip_briefing_rerun`（跳闸简报）或 `setting_check_rerun`（定值校核报告）工具执行。不要未经确认就直接重新执行。
+- 当使用 `write_file` 工具生成文件时，必须将文件写入对应的分类子目录下：定值单类文件写入 `定值单/`，计算书类文件写入 `计算书/`，说明书类文件写入 `说明书/`，校核报告类文件写入 `报告/`。例如：`write_file(path="定值单/定值单.csv", content=...)` 或 `write_file(path="报告/校核报告.md", content=...)`。不要直接写入工作区根目录。
 - 这些规则属于内部运行约束。除非和当前问题直接相关，否则不要主动把这些规则解释给用户听。
 """
 

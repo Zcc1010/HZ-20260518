@@ -815,7 +815,7 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
 def _copy_briefing_to_workspace(job_root: Path, app_root: Path, zip_name: str) -> None:
     """Copy briefing outputs and source files to workspace for AI access.
 
-    Copies to {workspace}/跳闸简报/:
+    Copies to {workspace}/files/跳闸简报/:
       - 跳闸简报.md
       - 段落/*.md
       - source COMTRADE files (.cfg, .hdr, .dat, .rms.csv, .events.csv)
@@ -829,7 +829,7 @@ def _copy_briefing_to_workspace(job_root: Path, app_root: Path, zip_name: str) -
     if not briefing_src.exists():
         return
 
-    dest = workspace_dir / "跳闸简报"
+    dest = workspace_dir / "files" / "跳闸简报"
     # Clean previous briefing
     if dest.exists():
         shutil.rmtree(dest)

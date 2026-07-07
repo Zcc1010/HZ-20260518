@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 
@@ -11,6 +12,7 @@ def generate_header(
     rules_names: list[str],
 ) -> str:
     """生成定值校核报告头部信息"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         "# 定值校核报告",
         "",
@@ -23,6 +25,7 @@ def generate_header(
         f"| 装置型号 | {model or '-'} |",
         f"| 软件版本 | {version or '-'} |",
         f"| 计算书 | {Path(calc_file).name if calc_file else '-'} |",
+        f"| 生成时间 | {now} |",
         "",
         "## 二、定值单文件",
         "",

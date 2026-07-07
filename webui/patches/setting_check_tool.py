@@ -18,22 +18,24 @@ def apply() -> None:
     def _init_patched(self, *args, **kwargs):
         _orig_init(self, *args, **kwargs)
         try:
-            from webui.services.setting_check.tool import SettingCheckReadTool, SettingCheckWriteTool, SettingCheckRerunTool
+            from webui.services.setting_check.tool import SettingCheckReadTool, SettingCheckWriteTool, SettingCheckRerunTool, SettingCheckGenerateTool
             self.tools.register(SettingCheckReadTool())
             self.tools.register(SettingCheckWriteTool())
             self.tools.register(SettingCheckRerunTool())
-            logger.debug("SettingCheckTool: registered setting_check_read + setting_check_write + setting_check_rerun")
+            self.tools.register(SettingCheckGenerateTool())
+            logger.debug("SettingCheckTool: registered setting_check_read + setting_check_write + setting_check_rerun + setting_check_generate")
         except Exception as exc:
             logger.error("SettingCheckTool: failed to register in __init__: {}", exc)
 
     def _register_default_tools_patched(self) -> None:
         _orig_register(self)
         try:
-            from webui.services.setting_check.tool import SettingCheckReadTool, SettingCheckWriteTool, SettingCheckRerunTool
+            from webui.services.setting_check.tool import SettingCheckReadTool, SettingCheckWriteTool, SettingCheckRerunTool, SettingCheckGenerateTool
             self.tools.register(SettingCheckReadTool())
             self.tools.register(SettingCheckWriteTool())
             self.tools.register(SettingCheckRerunTool())
-            logger.debug("SettingCheckTool: registered setting_check_read + setting_check_write + setting_check_rerun")
+            self.tools.register(SettingCheckGenerateTool())
+            logger.debug("SettingCheckTool: registered setting_check_read + setting_check_write + setting_check_rerun + setting_check_generate")
         except Exception as exc:
             logger.error("SettingCheckTool: failed to register in _register_default_tools: {}", exc)
 

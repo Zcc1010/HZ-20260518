@@ -199,12 +199,12 @@ export function ChatPanel({ workspacePath }: Props) {
     ctx += `- write_file: 写入/修改文件\n`
     ctx += `- glob: 搜索文件，例如 glob(pattern="**/*.xlsx", path="${wsFullPath}")\n`
     ctx += `- edit_file: 编辑文件指定行\n`
+    ctx += `- setting_check_generate: 根据工作区文件生成定值校核报告（workspace="${workspacePath}"）\n`
     ctx += `【禁止使用】trip_briefing_read、trip_briefing_write、setting_check_read、setting_check_write（这些是其他功能的工具）\n\n`
     ctx += `【校核流程】\n`
-    ctx += `1. 读取定值单（基准）和计算书（辅助）\n`
-    ctx += `2. 提取设备信息（设备类型、电压等级、装置型号）\n`
-    ctx += `3. 按整定原则逐条校核（5个维度：适用性、一致性、合理性、上下级配合、时间有效性）\n`
-    ctx += `4. 生成校核报告到 报告/ 目录\n\n`
+    ctx += `1. 用户要求"生成报告"或"重新生成报告"时，使用 setting_check_generate 工具\n`
+    ctx += `2. 工具会自动读取 定值单/ 和 计算书/ 目录的文件\n`
+    ctx += `3. 生成报告并保存到 报告/ 目录\n\n`
     ctx += `【目录说明】\n`
     ctx += `- 定值单/: 定值单文件\n`
     ctx += `- 计算书/: 计算书文件\n`

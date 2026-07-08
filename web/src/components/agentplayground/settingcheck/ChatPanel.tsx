@@ -210,6 +210,12 @@ export function ChatPanel({ workspacePath }: Props) {
     ctx += `- 计算书/: 计算书文件\n`
     ctx += `- 说明书/: 说明书文件\n`
     ctx += `- 报告/: 校核报告输出目录\n\n`
+    ctx += `【重要】用户提到的以下关键词均指当前工作区内的文件：\n`
+    ctx += `- "报告"/"校核报告" → ${wsFullPath}/报告/ 目录下的文件\n`
+    ctx += `- "计算书" → ${wsFullPath}/计算书/ 目录下的文件\n`
+    ctx += `- "定值单"/"定值" → ${wsFullPath}/定值单/ 目录下的文件\n`
+    ctx += `- "说明书" → ${wsFullPath}/说明书/ 目录下的文件\n`
+    ctx += `当用户说"看一下报告"、"读取计算书"等，直接用 read_file 读取对应目录下的文件即可，不需要用户指定完整路径。\n\n`
     ctx += `用户问题：${userQuestion}`
     return ctx
   }

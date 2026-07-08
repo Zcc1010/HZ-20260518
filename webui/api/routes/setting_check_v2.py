@@ -329,6 +329,15 @@ async def delete_file(ws: str, path: str = ""):
     if full.is_dir():
         shutil.rmtree(full)
     else:
+        # 删除报告 .md 时同步删除对应的 .docx，反之亦然
+        if full.suffix == ".md":
+            docx = full.with_suffix(".docx")
+            if docx.exists():
+                docx.unlink()
+        elif full.suffix == ".docx":
+            md = full.with_suffix(".md")
+            if md.exists():
+                md.unlink()
         full.unlink()
     return {"ok": True}
 

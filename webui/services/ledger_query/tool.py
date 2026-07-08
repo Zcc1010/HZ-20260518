@@ -85,7 +85,8 @@ QUERY_TYPE_DESC = "、".join(f"{k}({v['label']})" for k, v in QUERY_TYPE_MAP.ite
         protectModel=StringSchema("保护型号"),
         protectCover=StringSchema("套别：1=第一套，2=第二套"),
         manufacturer=StringSchema("生产厂家"),
-        unitName=StringSchema("运维单位"),
+        yearCategory=StringSchema("投运年限，可选值：12年以内、12年~15年、15年及以上"),
+        unitName=StringSchema("运维单位（即地区），如用户说'合肥地区'则填'合肥'，'安庆地区'则填'安庆'"),
         uniqueCode=StringSchema("设备唯一编码（查询详情时必填）"),
         onceDeviceId=StringSchema("一次设备ID（从列表结果获取，仅用于状态类查询跳过基本信息请求）"),
         queryType=StringSchema(f"查询类型，可选值：{QUERY_TYPE_DESC}，不填则返回设备列表"),
@@ -109,7 +110,12 @@ class LedgerQueryTool(Tool):
             "查询二次设备台账信息。两种用法：\n"
             "1. 搜索列表：传stName等筛选条件，不传uniqueCode，返回设备列表。\n"
             "2. 查询详情：传uniqueCode和queryType，返回指定类型的详情。"
-            f"queryType可选：{QUERY_TYPE_DESC}。"
+            f"queryType可选：{QUERY_TYPE_DESC}。\n"
+            "注意：用户说的'地区'指运维单位（unitName），如'合肥地区'='合肥'，'安庆地区'='安庆'。\n"
+            "关于'反措'：反措（反事故措施）是电力系统为防止事故再次发生而采取的技术改造措施。"
+            "常见反措类型包括：保护装置更换/升级、二次回路改造、保护定值修改、软件版本升级、"
+            "硬件更换（如CT/PT更换）、防误闭锁改造等。当用户查询反措相关记录时，"
+            "应查询检修记录（maintenance），并从工作内容中识别上述关键词。"
         )
 
     @property
@@ -135,7 +141,7 @@ class LedgerQueryTool(Tool):
         for key in (
             "stName", "stVoltageType", "onceVoltageType", "onceDeviceType",
             "onceDeviceName", "protectType", "protectModel", "protectCover",
-            "manufacturer", "unitName",
+            "manufacturer", "yearCategory", "unitName",
         ):
             val = kwargs.get(key)
             if val is not None and str(val).strip():
@@ -211,6 +217,7 @@ class LedgerQueryTool(Tool):
             cover = rec.get("protectCover", "")
             cover_label = f"第{cover}套" if cover else ""
             mfr = rec.get("manufacturer", "")
+            year_cat = rec.get("yearCategory", "")
             code = rec.get("uniqueCode", "")
             once_id = rec.get("onceDeviceId", "")
 
@@ -227,6 +234,8 @@ class LedgerQueryTool(Tool):
                 parts.append(f"套别: {cover_label}")
             if mfr:
                 parts.append(f"厂家: {mfr}")
+            if year_cat:
+                parts.append(f"投运年限: {year_cat}")
             if code:
                 parts.append(f"uniqueCode: {code}")
             if once_id:

@@ -375,9 +375,22 @@ export default function TripBriefingPage() {
           const state = useChatStore.getState();
           const lastAssistant = [...state.messages].reverse().find((m) => m.role === "assistant");
           if (lastAssistant && /已更新|已写回|已保存|已修改|已成功|已重新/.test(lastAssistant.content)) {
-            const currentJob = jobRef.current;
-            if (currentJob?.preview_url) {
-              fetchPreview(currentJob.preview_url).then((content) => setPreviewContent(content));
+            // 重新获取任务信息以获取最新的 preview_url
+            const currentJobId = jobRef.current?.id || jobId;
+            if (currentJobId) {
+              fetchJob(currentJobId).then(async (updatedJob) => {
+                setJob(updatedJob);
+                if (updatedJob.preview_url) {
+                  const content = await fetchPreview(updatedJob.preview_url);
+                  setPreviewContent(content);
+                }
+              }).catch(() => {
+                // 回退：使用当前 job 的 preview_url
+                const currentJob = jobRef.current;
+                if (currentJob?.preview_url) {
+                  fetchPreview(currentJob.preview_url).then((content) => setPreviewContent(content));
+                }
+              });
             }
           }
         } catch { /* ignore */ }

@@ -18,6 +18,7 @@ const TripBriefingPage = lazy(() => import("./pages/TripBriefingPage"));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
 const SettingCheckChatPage = lazy(() => import("./pages/SettingCheckChatPage"));
 const SettingCheckV2Page = lazy(() => import("./pages/SettingCheckV2Page"));
+const WaveRecordWorkspacePage = lazy(() => import("./pages/WaveRecordWorkspacePage"));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token, authlessEnabled } = useAuthStore((s) => ({
@@ -195,6 +196,10 @@ export default function App() {
       <Route
         path="setting-check-v2"
         element={<SettingCheckV2Page />}
+      />
+      <Route
+        path="wave-record-workspace"
+        element={<WaveRecordWorkspacePage />}
       />
       <Route path="*" element={<Navigate to={defaultPrivatePath} replace />} />
     </Routes>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, FileDown, X, Zap, Search, FolderOpen } from "lucide-react";
+import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, FileDown, X, Zap, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -276,14 +276,6 @@ export function SettingCheckWorkspace() {
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
-            <Button
-              onClick={() => navigate('/setting-check-v2')}
-              variant="outline"
-              className="gap-2 border-[#84aca9] bg-[#f0f7fa] text-[#00706b] hover:bg-[#e0f0f0]"
-            >
-              <FolderOpen className="h-4 w-4" />
-              文件管理
-            </Button>
             <Button
               onClick={handleExport}
               disabled={exporting}

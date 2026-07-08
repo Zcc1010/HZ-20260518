@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import json
+import shutil
 import zipfile
 from pathlib import Path
 from typing import Annotated
@@ -199,6 +201,19 @@ async def search_wave_record_jobs(
     return service.search_jobs(station.strip())
 
 
+@router.get("/jobs/{job_id}", response_model=WaveRecordJobInfo)
+async def get_wave_record_job(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    job_id: str,
+) -> WaveRecordJobInfo:
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+    job = service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return WaveRecordJobInfo(**job)
+
+
 @router.get("/jobs/by-external-id/{external_id}", response_model=WaveRecordJobInfo)
 async def get_job_by_external_id(
     svc: Annotated[ServiceContainer, Depends(get_services)],
@@ -335,6 +350,63 @@ async def delete_wave_record_job(
     if not ok:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"ok": True}
+
+
+class CopyToWorkspaceRequest(BaseModel):
+    workspace: str
+
+
+@router.post("/jobs/{job_id}/copy-to-workspace")
+async def copy_job_to_workspace(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    job_id: str,
+    body: CopyToWorkspaceRequest,
+) -> dict:
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+    job = service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_root = service.app_root / "jobs" / job_id
+    if not job_root.exists():
+        raise HTTPException(status_code=404, detail="Job directory not found")
+
+    # Workspace root: ~/.nanobot/agentplayground/wave-record-parser/workspace/
+    from webui.api.routes.wave_record_workspace import _workspace_root
+    workspace_root = _workspace_root()
+    ws_dir = workspace_root / body.workspace
+    ws_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create default subdirectories
+    src_dir = ws_dir / "录波源文件" / "保护录波"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = ws_dir / "报告"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy COMTRADE input files (.cfg, .dat, .hdr, .zip) to 录波源文件/保护录波/
+    inputs_dir = job_root / "inputs"
+    if inputs_dir.exists():
+        for item in inputs_dir.iterdir():
+            if not item.is_file():
+                continue
+            ext = item.suffix.lower()
+            if ext in ('.cfg', '.dat', '.hdr', '.zip', '.md'):
+                shutil.copy2(str(item), str(src_dir / item.name))
+
+    # Copy report files from output directory to 报告/
+    output_dir = job_root / "output"
+    if output_dir.exists():
+        for item in output_dir.rglob("*"):
+            if item.is_file() and item.suffix.lower() in ('.md', '.docx', '.pdf'):
+                shutil.copy2(str(item), str(report_dir / item.name))
+
+    # Copy analysis_report.md if exists at job root
+    analysis_report = job_root / "analysis_report.md"
+    if analysis_report.exists():
+        shutil.copy2(str(analysis_report), str(report_dir / analysis_report.name))
+
+    return {"ok": True, "workspace": body.workspace}
 
 
 @router.get("/jobs/{job_id}/preview")

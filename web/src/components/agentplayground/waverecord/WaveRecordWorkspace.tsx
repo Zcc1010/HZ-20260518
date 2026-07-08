@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, Plus, Loader2, FileDown, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, Upload, Zap, Search } from "lucide-react";
+import { Download, Plus, Loader2, FileDown, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, Upload, Zap, Search, FolderOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
@@ -355,6 +355,14 @@ export function WaveRecordWorkspace() {
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
             <Button
+              onClick={() => navigate('/wave-record-workspace')}
+              variant="outline"
+              className="gap-2 border-[#84aca9] bg-[#f0f7fa] text-[#00706b] hover:bg-[#e0f0f0]"
+            >
+              <FolderOpen className="h-4 w-4" />
+              文件管理
+            </Button>
+            <Button
               onClick={handleExport}
               disabled={exporting}
               className="gap-2 bg-[#00706b] hover:bg-[#0d5d57] text-white border border-[#00706b]"
@@ -582,6 +590,14 @@ export function WaveRecordWorkspace() {
                         </td>
                         <td className="px-5 py-4 w-[100px]">
                           <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/wave-record-workspace?jobId=${job.id}`)}
+                              className="inline-flex items-center text-[#298c88] hover:text-[#0d5d57] transition-colors"
+                              title="工作区"
+                            >
+                              <FolderOpen className="h-4 w-4" />
+                            </button>
                             {job.status === "completed" && job.preview_url && (
                               <button
                                 type="button"

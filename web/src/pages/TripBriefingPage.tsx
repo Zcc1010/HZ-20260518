@@ -26,6 +26,7 @@ interface WaveRecordJob {
   app_id: string;
   status: string;
   created_at: string;
+  updated_at?: string;
   file_name: string;
   preview_url?: string;
   station?: string;
@@ -374,23 +375,25 @@ export default function TripBriefingPage() {
         try {
           const state = useChatStore.getState();
           const lastAssistant = [...state.messages].reverse().find((m) => m.role === "assistant");
-          if (lastAssistant && /已更新|已写回|已保存|已修改|已成功|已重新/.test(lastAssistant.content)) {
-            // 重新获取任务信息以获取最新的 preview_url
+          if (lastAssistant && /已更新|已写回|已保存|已修改|已成功|已重新|已生成/.test(lastAssistant.content)) {
             const currentJobId = jobRef.current?.id || jobId;
             if (currentJobId) {
-              fetchJob(currentJobId).then(async (updatedJob) => {
-                setJob(updatedJob);
-                if (updatedJob.preview_url) {
-                  const content = await fetchPreview(updatedJob.preview_url);
-                  setPreviewContent(content);
-                }
-              }).catch(() => {
-                // 回退：使用当前 job 的 preview_url
-                const currentJob = jobRef.current;
-                if (currentJob?.preview_url) {
-                  fetchPreview(currentJob.preview_url).then((content) => setPreviewContent(content));
-                }
-              });
+              // 先同步工作区报告到 job output，确保下载拿到最新版本
+              fetch(withBasePath(`/api/wave-record-parser/jobs/${currentJobId}/sync-report`), { method: "POST" })
+                .then(() => fetchJob(currentJobId))
+                .then(async (updatedJob) => {
+                  setJob(updatedJob);
+                  if (updatedJob.preview_url) {
+                    const content = await fetchPreview(updatedJob.preview_url);
+                    setPreviewContent(content);
+                  }
+                })
+                .catch(() => {
+                  const currentJob = jobRef.current;
+                  if (currentJob?.preview_url) {
+                    fetchPreview(currentJob.preview_url).then((content) => setPreviewContent(content));
+                  }
+                });
             }
           }
         } catch { /* ignore */ }
@@ -460,7 +463,10 @@ export default function TripBriefingPage() {
     ctx += `  .dat        — 采样数据（二进制，不可直接文本读取）：包含各通道的瞬时值采样数据\n`;
     ctx += `  .rms.csv    — 有效值数据（文本CSV，可读）：各通道的RMS值随时间变化，适合分析故障前后电气量变化\n`;
     ctx += `  .events.csv — 事件记录（文本CSV，可读）：保护动作事件、开关变位等时序记录\n`;
-    ctx += `重要：\n`;
+    ctx += `重要行为规则：\n`;
+    ctx += `- 当你重新生成或修改了跳闸简报后，必须告知用户"左侧简报已自动更新"，让用户知道可以直接查看。\n`;
+    ctx += `- 不要主动提供下载链接，除非用户明确要求下载。\n\n`;
+    ctx += `文件操作说明：\n`;
     ctx += `1. 文件在子目录中，必须用递归搜索。glob 工具用法示例：\n`;
     ctx += `   glob(pattern="**/*.cfg") — 列出所有 .cfg 文件\n`;
     ctx += `   glob(pattern="**/*.rms.csv") — 列出所有有效值文件\n`;
@@ -605,6 +611,11 @@ export default function TripBriefingPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
+          {job.updated_at && (
+            <div className="mb-4 flex items-center gap-2 text-xs text-[#888]">
+              <span>报告生成时间：{new Date(job.updated_at).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+            </div>
+          )}
           <div className="prose prose-sm max-w-none">
             <MarkdownRenderer content={previewContent} />
           </div>

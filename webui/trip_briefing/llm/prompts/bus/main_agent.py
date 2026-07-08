@@ -19,6 +19,8 @@ def build_main_agent_prompt(paragraphs_content: str) -> str:
 
 请按以下结构生成简报：
 
+**严禁在简报中输出模板说明、填写规则、注释等内容。只输出简报正文，不要输出任何指导性文字。**
+
 ```markdown
 # {{日期}} {{厂站名称}}母差跳闸简报
 

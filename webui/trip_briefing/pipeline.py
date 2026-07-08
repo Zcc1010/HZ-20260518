@@ -226,6 +226,12 @@ def collect_device_files(
     hdr_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".hdr"]
     rms_files = [f for f in device_dir.iterdir() if f.name.lower().endswith(".rms.csv")]
     events_files = [f for f in device_dir.iterdir() if f.name.lower().endswith(".events.csv")]
+    # 故障录波器文件
+    rpt_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".rpt"]
+    ana_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".ana"]
+    inf_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".inf"]
+    cfg_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".cfg"]
+    dat_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".dat"]
 
     return DeviceFiles(
         station=station,
@@ -233,12 +239,17 @@ def collect_device_files(
         hdr_path=str(hdr_files[0]) if hdr_files else None,
         rms_csv_path=str(rms_files[0]) if rms_files else None,
         events_csv_path=str(events_files[0]) if events_files else None,
+        rpt_path=str(rpt_files[0]) if rpt_files else None,
+        ana_path=str(ana_files[0]) if ana_files else None,
+        inf_path=str(inf_files[0]) if inf_files else None,
+        cfg_path=str(cfg_files[0]) if cfg_files else None,
+        dat_path=str(dat_files[0]) if dat_files else None,
     )
 
 
 def _has_device_files(d: Path) -> bool:
-    """判断目录中是否包含装置文件（.hdr / .rms.csv / .events.csv / .cfg）"""
-    _exts = {".hdr", ".cfg"}
+    """判断目录中是否包含装置文件（.hdr / .cfg / .rpt / .ana / .inf）"""
+    _exts = {".hdr", ".cfg", ".rpt", ".ana", ".inf"}
     _name_ends = (".rms.csv", ".events.csv")
     for f in d.iterdir():
         low = f.name.lower()
@@ -306,12 +317,19 @@ def scan_devices(
                                 sub, station=station_name, set_number=sub.name,
                             ))
                         else:
-                            # 再向下一级
+                            # 再向下一级（最多5层深度）
                             for sub2 in sorted(sub.iterdir()):
-                                if sub2.is_dir() and _has_device_files(sub2):
-                                    devices.append(collect_device_files(
-                                        sub2, station=station_name, set_number=sub2.name,
-                                    ))
+                                if sub2.is_dir():
+                                    if _has_device_files(sub2):
+                                        devices.append(collect_device_files(
+                                            sub2, station=station_name, set_number=sub2.name,
+                                        ))
+                                    else:
+                                        for sub3 in sorted(sub2.iterdir()):
+                                            if sub3.is_dir() and _has_device_files(sub3):
+                                                devices.append(collect_device_files(
+                                                    sub3, station=station_name, set_number=sub3.name,
+                                                ))
     else:
         # 故障录波/厂站/（无套别层，也可能多一层包裹目录）
         for station_dir in sorted(base.iterdir()):
@@ -331,12 +349,19 @@ def scan_devices(
                             sub, station=station_name, set_number=sub.name,
                         ))
                     else:
-                        # 可能多一层包裹
+                        # 可能多一层包裹（最多5层深度）
                         for sub2 in sorted(sub.iterdir()):
-                            if sub2.is_dir() and _has_device_files(sub2):
-                                devices.append(collect_device_files(
-                                    sub2, station=station_name, set_number=sub2.name,
-                                ))
+                            if sub2.is_dir():
+                                if _has_device_files(sub2):
+                                    devices.append(collect_device_files(
+                                        sub2, station=station_name, set_number=sub2.name,
+                                    ))
+                                else:
+                                    for sub3 in sorted(sub2.iterdir()):
+                                        if sub3.is_dir() and _has_device_files(sub3):
+                                            devices.append(collect_device_files(
+                                                sub3, station=station_name, set_number=sub3.name,
+                                            ))
 
     return devices
 
@@ -399,6 +424,88 @@ def get_prompt_builder(device_type: str, role: str) -> Callable:
     return getattr(module, func_name)
 
 
+def _generate_fault_recorder_paragraph(
+    device: DeviceFiles,
+    llm_client,
+    output_dir: Path,
+    monitor: "Monitor",
+    config: "PipelineConfig" = None,
+) -> LLMResponse:
+    """
+    为故障录波器生成段落。
+
+    使用 parse_fault_recorder 解析 RPT/ANA/INF 文件，构造 prompt 调用 LLM。
+    """
+    from webui.trip_briefing.parse_fault_recorder import (
+        parse_rpt, parse_ana, parse_inf, build_fault_recorder_context,
+    )
+
+    # 解析故障录波器文件
+    rpt_data = parse_rpt(device.rpt_path) if device.rpt_path else {}
+    ana_data = parse_ana(device.ana_path) if device.ana_path else {}
+    inf_data = parse_inf(device.inf_path) if device.inf_path else {}
+
+    # HDR 内容作为补充
+    hdr_content = read_file_auto_encode(device.hdr_path) if device.hdr_path else ""
+
+    # 整合为结构化文本
+    context_text = build_fault_recorder_context(
+        rpt_data=rpt_data,
+        ana_data=ana_data,
+        inf_data=inf_data,
+        hdr_content=hdr_content or "",
+    )
+
+    # 构造 prompt
+    build_prompt = get_prompt_builder("fault_recorder", "subagent")
+    prompt_text = build_prompt(
+        rpt_content=context_text,
+        ana_content="",
+        inf_content="",
+        hdr_content="",
+        station=device.station,
+        set_number=device.set_number,
+    )
+
+    # 调用 LLM（带硬超时）
+    subagent_timeout_s = config.subagent_timeout if config else 120
+
+    with monitor.track("subagent", device=device.label) as tracker:
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+
+        def _call_llm():
+            return llm_client.chat_completion(
+                messages=[{"role": "user", "content": prompt_text}],
+                model=llm_client.model,
+                max_tokens=config.subagent_max_tokens if config else 4096,
+            )
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_call_llm)
+            try:
+                response = future.result(timeout=subagent_timeout_s)
+            except FutureTimeoutError:
+                logger.error(f"子 Agent LLM 调用超时 ({subagent_timeout_s}s): {device.label}")
+                return LLMResponse(
+                    success=False,
+                    error_message=f"子 Agent LLM 调用超时（{subagent_timeout_s}秒）: {device.label}",
+                )
+
+        tracker.input_tokens = response.prompt_tokens
+        tracker.output_tokens = response.completion_tokens
+        tracker.total_tokens = response.total_tokens
+
+    if response.success:
+        # 保存段落（清理 code fence）
+        content = strip_placeholders(strip_code_fences(response.content))
+        para_dir = output_dir / "段落"
+        para_dir.mkdir(parents=True, exist_ok=True)
+        para_path = para_dir / f"{device.label}.md"
+        para_path.write_text(content, encoding="utf-8")
+
+    return response
+
+
 def generate_paragraph(
     device: DeviceFiles,
     llm_client,
@@ -411,6 +518,7 @@ def generate_paragraph(
     Step 7: 为单套装置生成段落。
 
     读取 HDR/RMS/Events 文件，构造 subagent prompt，调用 LLM，保存段落 .md。
+    故障录波器设备使用 RPT/ANA/INF 文件解析。
 
     Args:
         device: 装置文件信息
@@ -422,6 +530,12 @@ def generate_paragraph(
     Returns:
         LLMResponse
     """
+    # 判断是否为故障录波器（有 .rpt 文件）
+    if device.is_fault_recorder:
+        return _generate_fault_recorder_paragraph(
+            device, llm_client, output_dir, monitor, config
+        )
+
     # 读取文件内容
     hdr_content = read_file_auto_encode(device.hdr_path) if device.hdr_path else ""
     rms_content = read_file_auto_encode(device.rms_csv_path) if device.rms_csv_path else ""

@@ -39,10 +39,21 @@ class DeviceFiles(BaseModel):
     hdr_path: Optional[str] = None
     rms_csv_path: Optional[str] = None
     events_csv_path: Optional[str] = None
+    # 故障录波器文件
+    rpt_path: Optional[str] = None
+    ana_path: Optional[str] = None
+    inf_path: Optional[str] = None
+    cfg_path: Optional[str] = None
+    dat_path: Optional[str] = None
 
     @property
     def label(self) -> str:
         return f"{self.station}_{self.set_number}"
+
+    @property
+    def is_fault_recorder(self) -> bool:
+        """是否为故障录波器（有 .rpt 文件）"""
+        return self.rpt_path is not None
 
 
 class MonitorSummary(BaseModel):

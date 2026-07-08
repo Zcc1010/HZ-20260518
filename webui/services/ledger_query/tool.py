@@ -44,6 +44,9 @@ QUERY_TYPE_MAP = {
     "setting": {"label": "定值单", "method": "GET",
                 "url": f"{BASE_URL}/dingzhi/getSettingValue",
                 "params": {"exType": "false"}, "id_source": "uniqueCode", "id_param": "devId"},
+    "bx_setting": {"label": "保信定值", "method": "GET",
+                   "url": f"{OUT_API_BASE}/open.api/dispatch/defence/device/qj/last",
+                   "params": {"methodName": "lastSetting"}, "id_source": "baoXinId", "id_param": "onceDeviceId"},
     "wave": {"label": "保信录波", "method": "GET",
              "url": f"{BASE_URL}/baoXin/getLbList",
              "id_source": "uniqueCode", "id_param": "uniqueCode"},
@@ -112,6 +115,7 @@ class LedgerQueryTool(Tool):
             "2. 查询详情：传uniqueCode和queryType，返回指定类型的详情。"
             f"queryType可选：{QUERY_TYPE_DESC}。\n"
             "注意：用户说的'地区'指运维单位（unitName），如'合肥地区'='合肥'，'安庆地区'='安庆'。\n"
+            "注意区分：setting=定值单（PDF文档），bx_setting=保信定值（装置实时定值，含当前值/标准值/上下限）。\n"
             "关于'反措'：反措（反事故措施）是电力系统为防止事故再次发生而采取的技术改造措施。"
             "常见反措类型包括：保护装置更换/升级、二次回路改造、保护定值修改、软件版本升级、"
             "硬件更换（如CT/PT更换）、防误闭锁改造等。当用户查询反措相关记录时，"
@@ -494,6 +498,35 @@ class LedgerQueryTool(Tool):
                 name = item.get("name", "")
                 val = item.get("value", item.get("settingValue", ""))
                 lines.append(f"  - {name}: {val}")
+
+            elif query_type == "bx_setting":
+                name = item.get("name", "")
+                val = item.get("value", "")
+                unit = item.get("unit", "")
+                std = item.get("stdvalue", "")
+                vmax = item.get("maxvalue", "")
+                vmin = item.get("minvalue", "")
+                step = item.get("stepsize", "")
+                last = item.get("lastVal", "")
+                t = item.get("time", "")
+                parts = [f"{name}"]
+                if val != "":
+                    parts.append(f"当前值: {val}")
+                if unit:
+                    parts.append(f"单位: {unit}")
+                if std != "":
+                    parts.append(f"标准值: {std}")
+                if vmax != "":
+                    parts.append(f"最大值: {vmax}")
+                if vmin != "":
+                    parts.append(f"最小值: {vmin}")
+                if step != "":
+                    parts.append(f"步长: {step}")
+                if last != "":
+                    parts.append(f"上次值: {last}")
+                if t:
+                    parts.append(f"时间: {t}")
+                lines.append(f"  - {' | '.join(parts)}")
 
             elif query_type == "wave":
                 fname = item.get("fileName", item.get("shortName", ""))

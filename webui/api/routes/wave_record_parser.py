@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import shutil
 import zipfile
 from pathlib import Path
 from typing import Annotated
@@ -349,7 +350,14 @@ async def preview_wave_record_job(
     if not job or job.get("status") != "completed":
         raise HTTPException(status_code=404, detail="Job not found or not completed")
 
-    # 在 job output 目录中查找 .md 文件
+    # 优先从工作区 报告/ 目录读取（AI 可能已更新）
+    workspace_dir = service.app_root.parent.parent / "workspace"
+    ws_report = workspace_dir / "报告" / "跳闸简报.md"
+    if ws_report.exists():
+        content = ws_report.read_text(encoding="utf-8")
+        return {"content": content}
+
+    # 回退到 job output 目录
     job_root = service.app_root / "jobs" / job_id / "output"
     md_files = list(job_root.glob("跳闸简报.md")) + list(job_root.glob("*.md"))
     if not md_files:
@@ -357,3 +365,45 @@ async def preview_wave_record_job(
 
     content = md_files[0].read_text(encoding="utf-8")
     return {"content": content}
+
+
+@router.post("/jobs/{job_id}/sync-report")
+async def sync_report_to_job_output(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    job_id: str,
+) -> dict:
+    """将工作区中 AI 更新的报告同步到 job output 目录，确保下载拿到最新版本。"""
+    ensure_agentplayground_enabled()
+    service = get_wave_record_parser_service(svc)
+    job = service.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    workspace_dir = service.app_root.parent.parent / "workspace"
+    ws_report = workspace_dir / "报告" / "跳闸简报.md"
+    if not ws_report.exists():
+        return {"ok": False, "reason": "workspace report not found"}
+
+    job_output = service.app_root / "jobs" / job_id / "output"
+    job_output.mkdir(parents=True, exist_ok=True)
+    dest = job_output / "跳闸简报.md"
+
+    # 比较内容，仅在有变化时同步
+    if dest.exists():
+        existing = dest.read_text(encoding="utf-8")
+        new_content = ws_report.read_text(encoding="utf-8")
+        if existing == new_content:
+            return {"ok": False, "reason": "no change"}
+
+    shutil.copy2(str(ws_report), str(dest))
+
+    # 更新 DB 中的文件大小和时间
+    from webui.services.agentplayground.db import connect, utcnow_iso
+    now = utcnow_iso()
+    with connect(service.db_path) as conn:
+        conn.execute(
+            "UPDATE jobs SET result_file_size = ?, updated_at = ? WHERE id = ?",
+            (dest.stat().st_size, now, job_id),
+        )
+
+    return {"ok": True}

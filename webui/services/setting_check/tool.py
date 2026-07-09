@@ -401,15 +401,36 @@ class SettingCheckGenerateTool(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         import asyncio
+        import re
 
         workspace = (kwargs.get("workspace") or "").strip()
         if not workspace:
             return "错误：请提供 workspace 参数（工作区名称）"
 
+        # 如果传入的是完整路径，提取最后的工作区名称
+        if "/" in workspace or "\\" in workspace:
+            workspace = workspace.rstrip("/").rstrip("\\").split("/")[-1].split("\\")[-1]
+
+        # 去除名称中多余的空格（如 "施官变 - 独施 369" → "施官变-独施369"）
+        workspace = re.sub(r'\s*-\s*', '-', workspace)
+        workspace = re.sub(r'\s+', '', workspace)
+
         # 工作区路径
         ws_path = _AGENTPLAYGROUND_DIR / "setting-check" / "workspace" / workspace
         if not ws_path.exists():
-            return f"错误：工作区 '{workspace}' 不存在"
+            # 尝试模糊匹配
+            parent = _AGENTPLAYGROUND_DIR / "setting-check" / "workspace"
+            if parent.exists():
+                candidates = [d.name for d in parent.iterdir() if d.is_dir()]
+                # 去除空格后匹配
+                normalized = workspace.replace(" ", "")
+                for c in candidates:
+                    if c.replace(" ", "") == normalized:
+                        ws_path = parent / c
+                        workspace = c
+                        break
+            if not ws_path.exists():
+                return f"错误：工作区 '{workspace}' 不存在。可用工作区：{', '.join(candidates) if 'candidates' in dir() else '无'}"
 
         # 检查定值单目录
         setting_dir = ws_path / "定值单"
@@ -433,7 +454,7 @@ class SettingCheckGenerateTool(Tool):
         # 收集计算书文件
         calc_paths = []
         for f in sorted(calc_dir.iterdir()):
-            if f.is_file() and f.suffix.lower() in {'.doc', '.docx', '.pdf', '.md', '.txt'}:
+            if f.is_file() and f.suffix.lower() in {'.xls', '.xlsx', '.doc', '.docx', '.pdf', '.md', '.txt'}:
                 calc_paths.append(f)
 
         if not calc_paths:

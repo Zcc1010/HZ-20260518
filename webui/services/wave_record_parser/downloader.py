@@ -198,7 +198,7 @@ class EventDownloader:
                     self.download_protection_wave(ap, sn, protection_dir)
 
         # ---- 下载故障录波器录波 ----
-        fault_dir = os.path.join(save_dir, "故障录波器录波")
+        fault_dir = os.path.join(save_dir, "故障录波")
         fault_list: list[dict] = detail.get("faultList") or []
         if fault_list:
             os.makedirs(fault_dir, exist_ok=True)

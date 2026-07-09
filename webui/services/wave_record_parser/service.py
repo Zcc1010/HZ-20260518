@@ -689,9 +689,15 @@ def execute_trip_briefing(job_root: Path, zip_file: Path, device_type: str, prog
     # ── 兼容扁平内层ZIP结构 ──
     # 如果解压后没有 保护录波/故障录波 目录，但存在扁平的装置文件，
     # 自动按文件名模式分组并创建标准目录结构
+    # 注意：如果已有 故障录波 目录（如从数据平台下载的），跳过重组，避免误分类
     has_protect_now = (input_dir / "保护录波").is_dir()
     has_fault_now = (input_dir / "故障录波").is_dir()
-    if not has_protect_now and not has_fault_now:
+    # 也检查非标准目录名（规范化前）
+    has_fault_alt = any(
+        d.is_dir() and "故障录波" in d.name
+        for d in input_dir.iterdir()
+    )
+    if not has_protect_now and not has_fault_now and not has_fault_alt:
         _reorganize_flat_device_files(input_dir, wrapper_dir_name)
 
     # ── 目录名规范化 ──

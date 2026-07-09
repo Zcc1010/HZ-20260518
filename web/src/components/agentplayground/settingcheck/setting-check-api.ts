@@ -1,4 +1,6 @@
-const API = '/api/setting-check-v2'
+import { withBasePath } from '@/lib/basePath'
+
+const API = withBasePath('/api/setting-check-v2')
 
 export interface FileNode {
   name: string

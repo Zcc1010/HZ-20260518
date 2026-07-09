@@ -9,8 +9,8 @@ import { ResizeHandle } from '@/components/agentplayground/settingcheck/ResizeHa
 import { listWorkspaces, getFileTree, createWorkspace, uploadFiles } from '@/components/agentplayground/settingcheck/setting-check-api'
 import type { FileNode } from '@/components/agentplayground/settingcheck/setting-check-api'
 import type { OutlineItem } from '@/components/agentplayground/settingcheck/setting-check-parse'
-import { useNavigate } from 'react-router-dom'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { withBasePath } from '@/lib/basePath'
 
 type LeftTab = 'files' | 'outline'
 
@@ -86,7 +86,7 @@ export default function SettingCheckV2Page() {
     if (workspacePath) {
       refreshTree(workspacePath)
       const ws = workspacePath
-      const es = new EventSource(`/api/setting-check-v2/workspaces/${encodeURIComponent(ws)}/events`)
+      const es = new EventSource(withBasePath(`/api/setting-check-v2/workspaces/${encodeURIComponent(ws)}/events`))
       es.onmessage = (e) => {
         try {
           const event = JSON.parse(e.data)
@@ -122,7 +122,7 @@ export default function SettingCheckV2Page() {
   useEffect(() => {
     if (jobId) {
       setLoading(true)
-      fetch(`/api/setting-check/jobs/${jobId}`)
+      fetch(withBasePath(`/api/setting-check/jobs/${jobId}`))
         .then(res => res.json())
         .then(job => {
           if (job && job.id) {
@@ -133,7 +133,7 @@ export default function SettingCheckV2Page() {
               if (workspaces.includes(wsName)) {
                 setWorkspacePath(wsName)
               } else {
-                fetch(`/api/setting-check/jobs/${jobId}/copy-to-workspace`, {
+                fetch(withBasePath(`/api/setting-check/jobs/${jobId}/copy-to-workspace`), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ workspace: wsName })

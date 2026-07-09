@@ -195,6 +195,8 @@ def apply() -> None:
         from nanobot.agent.runner import AgentRunSpec
         from nanobot.agent.skills import BUILTIN_SKILLS_DIR
         from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+        from pathlib import Path as _Path
+        _AGENTPLAYGROUND_DIR = (_Path.home() / ".nanobot" / "agentplayground").resolve()
         from nanobot.agent.tools.registry import ToolRegistry
         from nanobot.agent.tools.search import GlobTool, GrepTool
         from nanobot.agent.tools.shell import ExecTool
@@ -253,10 +255,10 @@ def apply() -> None:
             # Build tools — mirrors v0.1.5 _run_subagent exactly
             tools = ToolRegistry()
             allowed_dir = self.workspace if (self.restrict_to_workspace or self.exec_config.sandbox) else None
-            extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
+            extra_read = [BUILTIN_SKILLS_DIR, _AGENTPLAYGROUND_DIR] if allowed_dir else None
             tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
-            tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+            tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
+            tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
             tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
             tools.register(GlobTool(workspace=self.workspace, allowed_dir=allowed_dir))
             tools.register(GrepTool(workspace=self.workspace, allowed_dir=allowed_dir))
@@ -467,3 +469,65 @@ def apply() -> None:
         logger.debug("AgentLoop._process_message patched: subagent messages reclassified as sub_tool")
     except Exception as exc:
         logger.warning("Failed to patch AgentLoop._process_message: {}", exc)
+
+    # -----------------------------------------------------------------------
+    # Patch 5: AgentLoop._register_default_tools — add agentplayground to
+    # extra_allowed_dirs so file tools can access setting-check / trip-briefing
+    # workspaces even when restrict_to_workspace is enabled.
+    # -----------------------------------------------------------------------
+    try:
+        from nanobot.agent.loop import AgentLoop
+        _original_register_tools = AgentLoop._register_default_tools
+        from pathlib import Path as _Path
+        _AP_DIR = (_Path.home() / ".nanobot" / "agentplayground").resolve()
+
+        def _register_default_tools_patched(self) -> None:
+            _original_register_tools(self)
+            # Re-register file tools with agentplayground in extra_allowed_dirs
+            if self.restrict_to_workspace or self.exec_config.sandbox:
+                from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
+                from nanobot.agent.tools.search import GlobTool, GrepTool
+                from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+                allowed_dir = self.workspace
+                extra = [BUILTIN_SKILLS_DIR, _AP_DIR]
+                self.tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra))
+                self.tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra))
+                self.tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra))
+                self.tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra))
+                self.tools.register(GlobTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra))
+                self.tools.register(GrepTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra))
+
+        AgentLoop._register_default_tools = _register_default_tools_patched  # type: ignore[method-assign]
+        logger.debug("AgentLoop._register_default_tools patched: agentplayground added to extra_allowed_dirs")
+    except Exception as exc:
+        logger.warning("Failed to patch AgentLoop._register_default_tools: {}", exc)
+
+    # -----------------------------------------------------------------------
+    # Patch 6: ExecTool._guard_command — allow agentplayground paths in exec
+    # commands when restrict_to_workspace is enabled.
+    # -----------------------------------------------------------------------
+    try:
+        from nanobot.agent.tools.shell import ExecTool
+        _original_guard = ExecTool._guard_command
+
+        def _guard_command_patched(self, command: str, cwd: str) -> str | None:
+            result = _original_guard(self, command, cwd)
+            if result and "path outside working dir" in result:
+                # Check if any absolute path in the command is under agentplayground
+                import re as _re
+                from pathlib import Path as _P
+                ap_dir = (_P.home() / ".nanobot" / "agentplayground").resolve()
+                # Extract absolute paths from command
+                for raw in _re.findall(r'(?:^|\s)(/[^\s;|&]+)', command):
+                    try:
+                        p = _P(os.path.expandvars(raw.strip())).expanduser().resolve()
+                        if p == ap_dir or ap_dir in p.parents:
+                            return None  # Allow this path
+                    except Exception:
+                        continue
+            return result
+
+        ExecTool._guard_command = _guard_command_patched  # type: ignore[method-assign]
+        logger.debug("ExecTool._guard_command patched: agentplayground paths allowed")
+    except Exception as exc:
+        logger.warning("Failed to patch ExecTool._guard_command: {}", exc)

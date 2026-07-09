@@ -20,7 +20,7 @@ import requests
 
 BASE_URL = "http://10.34.38.113:8020"
 EVENT_DETAIL_URL = f"{BASE_URL}/fault/event/getDetails"
-WAVE_DOWNLOAD_URL = "http://10.34.38.122:18162/download/wave/v1/getRecorderFile"
+WAVE_DOWNLOAD_URL = "http://10.34.38.122:18162/wave/v1/getRecorderFile"
 GZFILE_DOWNLOAD_URL = "http://10.138.4.27:8201/fault/fault.do"
 
 HEADERS = {

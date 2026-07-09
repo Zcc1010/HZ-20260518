@@ -463,6 +463,15 @@ export default function TripBriefingPage() {
     ctx += `  .dat        — 采样数据（二进制，不可直接文本读取）：包含各通道的瞬时值采样数据\n`;
     ctx += `  .rms.csv    — 有效值数据（文本CSV，可读）：各通道的RMS值随时间变化，适合分析故障前后电气量变化\n`;
     ctx += `  .events.csv — 事件记录（文本CSV，可读）：保护动作事件、开关变位等时序记录\n`;
+    ctx += `跳闸简报报告查询方法：\n`;
+    ctx += `  所有已生成的跳闸简报存放在：~/.nanobot/agentplayground/wave-record-parser/jobs/{任务ID}/output/跳闸简报.md\n`;
+    ctx += `  当用户按设备名称查找跳闸简报时（如"查一下汤丁线的报告"），执行以下步骤：\n`;
+    ctx += `    1. grep 搜索：grep(pattern="设备名称关键词", path="~/.nanobot/agentplayground/wave-record-parser/jobs/", glob="**/跳闸简报.md")\n`;
+    ctx += `    2. 从结果中找到匹配的报告文件路径\n`;
+    ctx += `    3. 用 read_file 读取报告内容展示给用户\n`;
+    ctx += `  当用户要求"查看所有跳闸简报"时：\n`;
+    ctx += `    glob(pattern="**/output/跳闸简报.md", path="~/.nanobot/agentplayground/wave-record-parser/jobs/")\n`;
+    ctx += `    然后逐一读取报告标题行（第一行），列出所有可用的简报供用户选择。\n\n`;
     ctx += `重要行为规则：\n`;
     ctx += `- 当你重新生成或修改了跳闸简报后，必须告知用户"左侧简报已自动更新"，让用户知道可以直接查看。\n`;
     ctx += `- 不要主动提供下载链接，除非用户明确要求下载。\n\n`;

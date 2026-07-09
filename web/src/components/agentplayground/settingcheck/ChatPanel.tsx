@@ -217,6 +217,10 @@ export function ChatPanel({ workspacePath }: Props) {
     ctx += `- "定值单"/"定值" → ${wsFullPath}/定值单/ 目录下的文件\n`
     ctx += `- "说明书" → ${wsFullPath}/说明书/ 目录下的文件\n`
     ctx += `当用户说"看一下报告"、"读取计算书"等，直接用 read_file 读取对应目录下的文件即可，不需要用户指定完整路径。\n\n`
+    ctx += `【跳闸简报查询】当用户要求查看跳闸简报时（如"查一下汤丁线的跳闸简报"）：\n`
+    ctx += `  所有跳闸简报存放在：~/.nanobot/agentplayground/wave-record-parser/jobs/{任务ID}/output/跳闸简报.md\n`
+    ctx += `  按设备名搜索：grep(pattern="设备名关键词", path="~/.nanobot/agentplayground/wave-record-parser/jobs/", glob="**/跳闸简报.md")\n`
+    ctx += `  找到后用 read_file 读取报告内容展示给用户。\n\n`
     ctx += `用户问题：${userQuestion}`
     return ctx
   }

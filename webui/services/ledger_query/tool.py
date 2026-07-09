@@ -17,6 +17,26 @@ LEDGER_API_BASE = f"{BASE_URL}/ledger/equipment/secondary"
 PAGE_SIZE = 20
 AUTO_PAGE_THRESHOLD = 100
 
+# yearCategory 自然语言映射
+_YEAR_CATEGORY_ALIASES = {
+    "15年以上": "15年及以上",
+    "超过15年": "15年及以上",
+    "大于15年": "15年及以上",
+    "15年以上": "15年及以上",
+    "超15年": "15年及以上",
+    "12年以上": "12年~15年",
+    "12到15年": "12年~15年",
+    "12年至15年": "12年~15年",
+    "12年到15年": "12年~15年",
+    "12-15年": "12年~15年",
+    "12年内": "12年以内",
+    "12年以内": "12年以内",
+    "不到12年": "12年以内",
+    "小于12年": "12年以内",
+}
+
+_YEAR_CATEGORY_VALID = {"12年以内", "12年~15年", "15年及以上"}
+
 # 查询类型 → 接口映射
 # id_source: 从基本信息中提取的 ID 字段名
 #   - "onceDeviceId" → 状态类查询（硬压板/软压板/模拟量/开入量/综合状态）
@@ -88,7 +108,7 @@ QUERY_TYPE_DESC = "、".join(f"{k}({v['label']})" for k, v in QUERY_TYPE_MAP.ite
         protectModel=StringSchema("保护型号"),
         protectCover=StringSchema("套别：1=第一套，2=第二套"),
         manufacturer=StringSchema("生产厂家"),
-        yearCategory=StringSchema("投运年限，可选值：12年以内、12年~15年、15年及以上"),
+        yearCategory=StringSchema("投运年限，可选值：12年以内、12年~15年、15年及以上（支持别名：超过15年、15年以上等自动映射）"),
         unitName=StringSchema("运维单位（即地区），如用户说'合肥地区'则填'合肥'，'安庆地区'则填'安庆'"),
         uniqueCode=StringSchema("设备唯一编码（查询详情时必填）"),
         onceDeviceId=StringSchema("一次设备ID（从列表结果获取，仅用于状态类查询跳过基本信息请求）"),
@@ -119,7 +139,8 @@ class LedgerQueryTool(Tool):
             "关于'反措'：反措（反事故措施）是电力系统为防止事故再次发生而采取的技术改造措施。"
             "常见反措类型包括：保护装置更换/升级、二次回路改造、保护定值修改、软件版本升级、"
             "硬件更换（如CT/PT更换）、防误闭锁改造等。当用户查询反措相关记录时，"
-            "应查询检修记录（maintenance），并从工作内容中识别上述关键词。"
+            "应查询检修记录（maintenance），并从工作内容中识别上述关键词。\n"
+            "重要：搜索到结果后请直接展示给用户，不要重复搜索。yearCategory支持自然语言（如'超过15年'自动映射为'15年及以上'）。"
         )
 
     @property
@@ -149,10 +170,17 @@ class LedgerQueryTool(Tool):
         ):
             val = kwargs.get(key)
             if val is not None and str(val).strip():
+                val_str = str(val).strip()
                 if key == "unitName":
-                    query_params["unitCode"] = str(val).strip()
+                    query_params["unitCode"] = val_str
+                elif key == "yearCategory":
+                    # 自然语言映射
+                    normalized = _YEAR_CATEGORY_ALIASES.get(val_str, val_str)
+                    if normalized not in _YEAR_CATEGORY_VALID:
+                        return f"yearCategory 值无效：'{val_str}'，可选值：12年以内、12年~15年、15年及以上"
+                    query_params[key] = normalized
                 else:
-                    query_params[key] = str(val).strip()
+                    query_params[key] = val_str
 
         if not query_params:
             return "请提供至少一个查询条件，如厂站名称、电压等级、套别等。"
@@ -212,6 +240,9 @@ class LedgerQueryTool(Tool):
         else:
             lines.append(f"共 {count} 条记录：\n")
 
+        # 当结果超过30条时，只返回精简列表（避免token过多导致AI反复调用）
+        _detail_threshold = 30
+
         for i, rec in enumerate(all_records, 1):
             name = rec.get("onceDeviceName") or rec.get("stName") or "未知"
             st = rec.get("stName", "")
@@ -225,29 +256,43 @@ class LedgerQueryTool(Tool):
             code = rec.get("uniqueCode", "")
             once_id = rec.get("onceDeviceId", "")
 
-            parts = [f"{i}. {name}"]
-            if st:
-                parts.append(f"厂站: {st}")
-            if voltage:
-                parts.append(f"电压: {voltage}")
-            if ptype:
-                parts.append(f"保护类型: {ptype}")
-            if model:
-                parts.append(f"型号: {model}")
-            if cover_label:
-                parts.append(f"套别: {cover_label}")
-            if mfr:
-                parts.append(f"厂家: {mfr}")
-            if year_cat:
-                parts.append(f"投运年限: {year_cat}")
-            if code:
-                parts.append(f"uniqueCode: {code}")
-            if once_id:
-                parts.append(f"onceDeviceId: {once_id}")
-            lines.append(" | ".join(parts))
+            if count <= _detail_threshold:
+                parts = [f"{i}. {name}"]
+                if st:
+                    parts.append(f"厂站: {st}")
+                if voltage:
+                    parts.append(f"电压: {voltage}")
+                if ptype:
+                    parts.append(f"保护类型: {ptype}")
+                if model:
+                    parts.append(f"型号: {model}")
+                if cover_label:
+                    parts.append(f"套别: {cover_label}")
+                if mfr:
+                    parts.append(f"厂家: {mfr}")
+                if year_cat:
+                    parts.append(f"投运年限: {year_cat}")
+                if code:
+                    parts.append(f"uniqueCode: {code}")
+                if once_id:
+                    parts.append(f"onceDeviceId: {once_id}")
+                lines.append(" | ".join(parts))
+            else:
+                # 精简格式
+                parts = [f"{i}. {name}"]
+                if st:
+                    parts.append(st)
+                if model:
+                    parts.append(model)
+                if year_cat:
+                    parts.append(year_cat)
+                lines.append(" | ".join(parts))
 
         if count >= AUTO_PAGE_THRESHOLD:
             lines.append(f"\n结果较多（>{AUTO_PAGE_THRESHOLD}条），建议添加更多筛选条件缩小范围。")
+
+        if count > 0:
+            lines.append(f"\n[搜索完成，共{count}条结果。请直接向用户展示结果，无需再次查询。如需查看详情，使用uniqueCode+queryType查询。]")
 
         return "\n".join(lines)
 

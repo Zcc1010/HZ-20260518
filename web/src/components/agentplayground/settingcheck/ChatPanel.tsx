@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { nanoid } from 'nanoid'
-import { MessageSquare, Send, Square, Plus, Copy, Check, Paperclip, X, FileText, ChevronDown, Wifi, WifiOff } from 'lucide-react'
+import { MessageSquare, Send, Square, Plus, Copy, Check, Paperclip, X, FileText, ChevronDown, Wifi, WifiOff, BrainCircuit } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
@@ -28,6 +28,7 @@ export function ChatPanel({ workspacePath }: Props) {
     return s.sessionStates[key] ?? { isWaiting: false, progressText: '' }
   })
   const isWaiting = sessionState.isWaiting
+  const progressText = sessionState.progressText
 
   const wsRef = useRef<ChatWebSocket | null>(null)
   const assistantMsgIdsRef = useRef<Record<string, string>>({})
@@ -49,7 +50,7 @@ export function ChatPanel({ workspacePath }: Props) {
     if (wasAtBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages])
+  }, [messages, sessionState.progressText])
 
   const handleMessagesScroll = () => {
     const el = messagesScrollRef.current
@@ -340,20 +341,30 @@ export function ChatPanel({ workspacePath }: Props) {
         {messages.length === 0 && !isWaiting && (
           <div className="h-full flex items-center justify-center text-gray-400">
             <div className="text-center">
-              <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-20" />
-              <div className="text-sm">输入消息开始对话</div>
-              <div className="text-xs mt-1 text-gray-300">首次对话会自动加载工作区上下文</div>
+              <div className="flex h-16 w-16 mx-auto mb-4 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b]">
+                <BrainCircuit className="h-8 w-8 text-white" />
+              </div>
+              <div className="text-sm font-medium text-[#333]">定值校核助手</div>
+              <div className="text-xs mt-2 text-gray-400">输入消息开始对话，首次对话会自动加载工作区上下文</div>
             </div>
           </div>
         )}
         {messages.map((msg) => (
-          <div key={msg.id} className={`group flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div
+            key={msg.id}
+            className={cn('flex items-start gap-3', msg.role === 'user' && 'flex-row-reverse')}
+          >
+            {msg.role === 'assistant' && (
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+                <BrainCircuit className="h-4 w-4 text-white" />
+              </div>
+            )}
             <div
               className={cn(
-                'max-w-[88%] px-3.5 py-2.5 rounded-xl text-sm',
+                'max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm',
                 msg.role === 'user'
-                  ? 'bg-teal-600 text-white rounded-br-sm'
-                  : 'bg-white text-gray-800 border border-gray-200 rounded-bl-sm',
+                  ? 'rounded-tr-sm bg-[#298c88] text-white'
+                  : 'rounded-tl-sm bg-white/90 text-slate-700 border border-[#e8f0f0]',
               )}
             >
               {msg.role === 'assistant' ? (
@@ -371,6 +382,23 @@ export function ChatPanel({ workspacePath }: Props) {
             </div>
           </div>
         ))}
+
+        {isWaiting && (
+          <div className="flex items-start gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+              <BrainCircuit className="h-4 w-4 text-white" />
+            </div>
+            <div className="rounded-2xl rounded-tl-sm bg-white/90 px-4 py-2.5 text-sm text-slate-600 shadow-sm flex items-center gap-2 border border-[#e8f0f0]">
+              <span className="flex gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce [animation-delay:0ms]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce [animation-delay:150ms]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce [animation-delay:300ms]" />
+              </span>
+              <span className="truncate max-w-xs">{progressText || '思考中...'}</span>
+            </div>
+          </div>
+        )}
+
         <div ref={bottomRef} />
         {showJumpBottom && (
           <button

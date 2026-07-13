@@ -4,7 +4,6 @@ from dataclasses import asdict, dataclass
 from typing import Literal
 
 
-APP_ID_G_FILE_COMPARE = "g-file-compare"
 APP_ID_WAVE_RECORD_PARSER = "wave-record-parser"
 APP_ID_SETTING_CHECK = "setting-check"
 JobStatus = Literal["queued", "processing", "completed", "failed"]

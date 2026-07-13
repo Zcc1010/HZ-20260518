@@ -28,8 +28,6 @@ class ServiceContainer:
     heartbeat: HeartbeatService
     make_provider: Callable = field(default=lambda cfg: None)
     webui_only: bool = False
-    g_file_compare_app_root: str | None = None
-    g_file_compare_service: Any = None
 
     def reload_provider(self) -> None:
         """Hot-swap the LLM provider and all runtime settings on agent and heartbeat."""

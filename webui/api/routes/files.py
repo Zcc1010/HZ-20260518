@@ -48,19 +48,7 @@ def _resolve_agentplayground_attachment(svc: ServiceContainer, token: str) -> di
             if result is not None:
                 return result
 
-    # Try g-file-compare
-    service = getattr(svc, "g_file_compare_service", None)
-    if service is None:
-        try:
-            from webui.api.routes.g_file_compare import get_g_file_compare_service
-        except Exception:
-            return None
-        service = get_g_file_compare_service(svc)
-
-    find_result_attachment = getattr(service, "find_result_attachment", None)
-    if find_result_attachment is None:
-        return None
-    return find_result_attachment(token)
+    return None
 
 
 @router.get("/d/{token}")

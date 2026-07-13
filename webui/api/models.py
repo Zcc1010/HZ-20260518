@@ -377,19 +377,6 @@ class AgentPlaygroundAppInfo(BaseModel):
     enabled: bool = True
 
 
-class GFileCompareJobInfo(BaseModel):
-    id: str
-    app_id: str
-    status: str
-    created_at: str
-    updated_at: str
-    error_message: str | None = None
-    d5000_file_name: str
-    new_gen_file_name: str
-    result_file_name: str | None = None
-    download_url: str | None = None
-
-
 class WaveRecordJobInfo(BaseModel):
     id: str
     app_id: str

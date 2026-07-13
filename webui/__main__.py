@@ -228,16 +228,8 @@ async def main(
         container = ServiceContainer(**_svc_kwargs)
         container.webui_only = webui_only
 
-    from webui.services.agentplayground.paths import default_g_file_compare_app_root, default_wave_record_parser_app_root
-    from webui.services.g_file_compare.service import GFileCompareService
+    from webui.services.agentplayground.paths import default_wave_record_parser_app_root
     from webui.services.wave_record_parser.service import WaveRecordParserService
-
-    container.g_file_compare_app_root = str(default_g_file_compare_app_root(config.workspace_path))
-    container.g_file_compare_service = GFileCompareService(
-        app_root=container.g_file_compare_app_root,
-    )
-    container.g_file_compare_service.initialize()
-    container.g_file_compare_service.start_queue()
 
     container.wave_record_parser_app_root = str(default_wave_record_parser_app_root(config.workspace_path))
     container.wave_record_parser_service = WaveRecordParserService(

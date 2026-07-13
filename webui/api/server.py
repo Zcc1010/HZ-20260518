@@ -74,7 +74,6 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
         config,
         cron,
         files,
-        g_file_compare,
         mcp,
         openai_proxy,
         providers,
@@ -96,7 +95,6 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
     app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
     app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
     app.include_router(files.router, prefix="/api/files", tags=["files"])
-    app.include_router(g_file_compare.router, prefix="/api/g-file-compare", tags=["g-file-compare"])
     app.include_router(wave_record_parser.router, prefix="/api/wave-record-parser", tags=["wave-record-parser"])
     app.include_router(setting_check.router, prefix="/api/setting-check", tags=["setting-check"])
     app.include_router(setting_check_v2.router, prefix="/api/setting-check-v2", tags=["setting-check-v2"])

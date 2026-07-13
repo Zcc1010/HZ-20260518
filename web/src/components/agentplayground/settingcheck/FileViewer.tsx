@@ -5,6 +5,34 @@ import { MarkdownRenderer } from '@/components/shared/MarkdownRenderer'
 import { parseXlsx, parseDocx, parsePdfOutline, parseMarkdownOutline, parseDocOutline, type OutlineItem, type SheetData } from './setting-check-parse'
 import { PdfViewer } from './PdfViewer'
 
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let current: string[] = []
+  let field = ''
+  let inQuotes = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++ }
+        else { inQuotes = false }
+      } else { field += ch }
+    } else {
+      if (ch === '"') { inQuotes = true }
+      else if (ch === ',') { current.push(field); field = '' }
+      else if (ch === '\n' || ch === '\r') {
+        current.push(field); field = ''
+        if (current.some(c => c.trim() !== '')) rows.push(current)
+        current = []
+        if (ch === '\r' && text[i + 1] === '\n') i++
+      } else { field += ch }
+    }
+  }
+  current.push(field)
+  if (current.some(c => c.trim() !== '')) rows.push(current)
+  return rows
+}
+
 interface Props {
   workspacePath: string | null
   filePath: string | null
@@ -38,7 +66,12 @@ export function FileViewer({ workspacePath, filePath, version, activeSheet, onSh
         onSheetsChange([]); onOutlineChange([])
         setMdContent(''); setDocxHtml(''); setSheets([])
 
-        if (['xls', 'xlsx'].includes(ext)) {
+        if (ext === 'csv') {
+          const text = await fetch(getFileUrl(workspacePath!, filePath!)).then((r) => r.text())
+          const rows = parseCsv(text)
+          setSheets([{ name: 'Sheet1', rows, cols: [], merges: [] }])
+          onSheetsChange(['Sheet1'])
+        } else if (['xls', 'xlsx'].includes(ext)) {
           const data = await readBinaryFile(workspacePath!, filePath!)
           const bytes = Uint8Array.from(atob(data.base64), (c) => c.charCodeAt(0))
           const result = parseXlsx(bytes.buffer)
@@ -140,7 +173,7 @@ export function FileViewer({ workspacePath, filePath, version, activeSheet, onSh
     )
   }
 
-  if (['xls', 'xlsx'].includes(ext)) {
+  if (['xls', 'xlsx', 'csv'].includes(ext)) {
     const sheet = sheets[activeSheet] || sheets[0]
     return (
       <div className="h-full flex flex-col">

@@ -106,7 +106,12 @@ class LLMClient:
             except Exception as e:
                 logger.warning(f"LLM 调用失败 (尝试 {attempt + 1}/{self.max_retries}): {e}")
                 if attempt < self.max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    # 对于 429 错误（限流），等待更长时间
+                    error_str = str(e)
+                    if "429" in error_str or "访问量过大" in error_str:
+                        time.sleep(min(30, 5 * (attempt + 1)))  # 5s, 10s, 15s
+                    else:
+                        time.sleep(2 ** attempt)
 
         error_msg = f"LLM 调用失败，已重试 {self.max_retries} 次"
         logger.error(error_msg)

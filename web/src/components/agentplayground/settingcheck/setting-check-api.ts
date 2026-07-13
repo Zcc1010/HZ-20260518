@@ -7,7 +7,7 @@ export interface FileNode {
   path: string
   type: 'file' | 'directory'
   size?: number
-  mtime?: string
+  mtime?: number | string
   children?: FileNode[]
 }
 
@@ -122,4 +122,21 @@ export async function uploadFiles(ws: string, files: File[]): Promise<string[]> 
   })
   const data = await r.json()
   return data.files || []
+}
+
+export interface LinkManualsResult {
+  linked: boolean
+  manufacturer?: string
+  device_type?: string
+  model?: string
+  path?: string
+  reason?: string
+  available?: string[]
+}
+
+export async function linkManuals(ws: string): Promise<LinkManualsResult> {
+  const r = await fetch(`${API}/workspaces/${encodeURIComponent(ws)}/link-manuals`, {
+    method: 'POST',
+  })
+  return r.json()
 }

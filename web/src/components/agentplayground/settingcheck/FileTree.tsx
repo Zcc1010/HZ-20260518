@@ -72,9 +72,14 @@ function formatSize(bytes?: number) {
   return (bytes / 1024 / 1024).toFixed(1) + ' MB'
 }
 
-function formatDate(iso?: string) {
-  if (!iso) return ''
-  try { return new Date(iso).toLocaleDateString('zh-CN') + ' ' + new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) } catch { return '' }
+function formatDate(mtime?: number | string) {
+  if (!mtime) return ''
+  try {
+    // Unix 时间戳（秒）转毫秒
+    const ts = typeof mtime === 'number' ? mtime * 1000 : new Date(mtime).getTime()
+    const d = new Date(ts)
+    return d.toLocaleDateString('zh-CN') + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  } catch { return '' }
 }
 
 function useTooltip() {

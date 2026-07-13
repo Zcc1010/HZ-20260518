@@ -6,7 +6,7 @@ import { FileViewer } from '@/components/agentplayground/settingcheck/FileViewer
 import { ChatPanel } from '@/components/agentplayground/settingcheck/ChatPanel'
 import { Outline } from '@/components/agentplayground/settingcheck/Outline'
 import { ResizeHandle } from '@/components/agentplayground/settingcheck/ResizeHandle'
-import { listWorkspaces, getFileTree, createWorkspace, uploadFiles } from '@/components/agentplayground/settingcheck/setting-check-api'
+import { listWorkspaces, getFileTree, createWorkspace, uploadFiles, linkManuals } from '@/components/agentplayground/settingcheck/setting-check-api'
 import type { FileNode } from '@/components/agentplayground/settingcheck/setting-check-api'
 import type { OutlineItem } from '@/components/agentplayground/settingcheck/setting-check-parse'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -84,7 +84,10 @@ export default function SettingCheckV2Page() {
 
   useEffect(() => {
     if (workspacePath) {
-      refreshTree(workspacePath)
+      // 先链接说明书，再刷新文件树
+      linkManuals(workspacePath).finally(() => {
+        refreshTree(workspacePath)
+      })
       const ws = workspacePath
       const es = new EventSource(withBasePath(`/api/setting-check-v2/workspaces/${encodeURIComponent(ws)}/events`))
       es.onmessage = (e) => {

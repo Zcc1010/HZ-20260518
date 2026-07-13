@@ -120,6 +120,8 @@ def run_pipeline(
         setting_file="、".join(setting_names),
         calc_file="、".join(calc_names),
         rules_names=rules_names,
+        device_type=device_type,
+        voltage_level=voltage_level,
     )
     full_report = header + "\n\n" + agent2_response
 

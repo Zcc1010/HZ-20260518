@@ -372,23 +372,36 @@ def execute_job(app_root: Path, job_id: str, progress_callback: Any = None) -> P
 
     device_type = manifest.get("device_type", "line")
 
-    # Find uploaded files
+    # Find uploaded files (recursive: support nested directory structures)
     cfg_file = None
     dat_file = None
     hdr_file = None
     zip_file = None
 
-    for f in inputs_dir.iterdir():
-        if f.is_file():
-            ext = f.suffix.lower()
-            if ext == ".cfg":
-                cfg_file = f
-            elif ext == ".dat":
-                dat_file = f
-            elif ext == ".hdr":
-                hdr_file = f
-            elif ext == ".zip":
-                zip_file = f
+    for f in inputs_dir.rglob("*"):
+        if not f.is_file():
+            continue
+        ext = f.suffix.lower()
+        if ext == ".cfg" and cfg_file is None:
+            cfg_file = f
+        elif ext == ".dat" and dat_file is None:
+            dat_file = f
+        elif ext == ".hdr" and hdr_file is None:
+            hdr_file = f
+        elif ext == ".zip":
+            zip_file = f
+
+    # If no zip found but there are files in subdirectories (e.g. downloaded .ZWAV files),
+    # consolidate all files into a single zip for the pipeline
+    if not zip_file:
+        all_files = [f for f in inputs_dir.rglob("*") if f.is_file()]
+        if all_files:
+            consolidated = inputs_dir / "_consolidated.zip"
+            with zipfile.ZipFile(consolidated, "w", zipfile.ZIP_DEFLATED) as zf:
+                for f in all_files:
+                    arc_name = str(f.relative_to(inputs_dir)).replace("\\", "/")
+                    zf.write(f, arc_name)
+            zip_file = consolidated
 
     # If zip file exists, use trip_briefing pipeline
     if zip_file:
@@ -1119,32 +1132,28 @@ class WaveRecordParserService:
         run_in_background: bool = True,
         external_id: str | None = None,
     ) -> dict[str, Any]:
-        """从本地目录创建任务，自动读取 _故障事件信息.md 提取元数据。"""
+        """从本地目录创建任务，自动将目录打包为 zip 供 pipeline 处理。"""
         dir_path = Path(dir_path).expanduser().resolve()
         if not dir_path.is_dir():
             raise FileNotFoundError(f"目录不存在: {dir_path}")
 
-        file_names: list[str] = []
-        file_bytes_list: list[bytes] = []
+        # 将整个目录打包为 zip，保留目录结构（保护录波/故障录波 等）
+        # 这样 execute_job 能找到 .zip 文件并走 execute_trip_briefing 流程
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in sorted(dir_path.rglob("*")):
+                if f.is_file():
+                    arc_name = str(f.relative_to(dir_path)).replace("\\", "/")
+                    zf.write(f, arc_name)
+        zip_bytes = zip_buf.getvalue()
 
-        # 收集目录中的所有文件（递归子目录）
-        for f in sorted(dir_path.rglob("*")):
-            if f.is_file():
-                # 保留相对路径结构
-                try:
-                    rel = f.relative_to(dir_path)
-                    arc_name = str(rel).replace("\\", "/")
-                except ValueError:
-                    arc_name = f.name
-                file_names.append(arc_name)
-                file_bytes_list.append(f.read_bytes())
-
-        if not file_names:
+        if not zip_bytes:
             raise FileNotFoundError(f"目录为空: {dir_path}")
 
+        zip_name = f"{dir_path.name}.zip"
         return self._create_job_from_bytes(
-            file_names=file_names,
-            file_bytes_list=file_bytes_list,
+            file_names=[zip_name],
+            file_bytes_list=[zip_bytes],
             station=station,
             device=device,
             device_type=device_type,

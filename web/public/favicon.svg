@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#298c88"/>
+      <stop offset="100%" stop-color="#00706b"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4dd9d0" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#298c88" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="512" height="512" rx="108" ry="108" fill="url(#bg)"/>
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="155" fill="none" stroke="url(#glow)" stroke-width="3.5" stroke-dasharray="8 12" opacity="0.5"/>
+  <!-- Connection lines from center to nodes -->
+  <line x1="256" y1="256" x2="256" y2="118" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.85"/>
+  <line x1="256" y1="256" x2="375" y2="195" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.85"/>
+  <line x1="256" y1="256" x2="375" y2="317" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.85"/>
+  <line x1="256" y1="256" x2="256" y2="394" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.85"/>
+  <line x1="256" y1="256" x2="137" y2="317" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.85"/>
+  <line x1="256" y1="256" x2="137" y2="195" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.85"/>
+  <!-- Outer nodes -->
+  <circle cx="256" cy="118" r="22" fill="white" opacity="0.95"/>
+  <circle cx="375" cy="195" r="22" fill="white" opacity="0.95"/>
+  <circle cx="375" cy="317" r="22" fill="white" opacity="0.95"/>
+  <circle cx="256" cy="394" r="22" fill="white" opacity="0.95"/>
+  <circle cx="137" cy="317" r="22" fill="white" opacity="0.95"/>
+  <circle cx="137" cy="195" r="22" fill="white" opacity="0.95"/>
+  <!-- Node inner dots (brand color) -->
+  <circle cx="256" cy="118" r="10" fill="#00706b"/>
+  <circle cx="375" cy="195" r="10" fill="#00706b"/>
+  <circle cx="375" cy="317" r="10" fill="#00706b"/>
+  <circle cx="256" cy="394" r="10" fill="#00706b"/>
+  <circle cx="137" cy="317" r="10" fill="#00706b"/>
+  <circle cx="137" cy="195" r="10" fill="#00706b"/>
+  <!-- Center hub -->
+  <circle cx="256" cy="256" r="42" fill="white" opacity="0.95"/>
+  <circle cx="256" cy="256" r="20" fill="#00706b"/>
+  <!-- Center highlight -->
+  <circle cx="256" cy="256" r="8" fill="white" opacity="0.8"/>
+</svg>

@@ -580,7 +580,7 @@ export default function TripBriefingPage() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => navigate("/agentplayground/wave-record-parser")}
+              onClick={() => navigate("/wave-record")}
               className="h-10 rounded-xl border-[#d0e0e0] text-[#555] hover:bg-[#f0f7fa]"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -601,7 +601,7 @@ export default function TripBriefingPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate("/agentplayground/wave-record-parser")}
+            onClick={() => navigate("/wave-record")}
             className="h-9 w-9 shrink-0 rounded-xl text-[#555] hover:bg-[#f0f7fa] hover:text-[#000]"
             title="返回录波解析"
           >

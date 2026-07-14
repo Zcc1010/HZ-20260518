@@ -225,7 +225,7 @@ export default function SettingCheckV2Page() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => navigate('/agentplayground')}
+          onClick={() => navigate('/setting-check')}
           title="返回"
           className="shrink-0"
         >

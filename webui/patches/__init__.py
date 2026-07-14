@@ -19,11 +19,12 @@ status_tool [StatusTool]  Register status_query tool for running status queries.
 important_warn_tool [ImportantWarnTool] Register important_warn_query tool for alarm queries.
 trip_briefing_tool [TripBriefingTool] Register trip_briefing_read/write tools for briefing reports.
 setting_check_tool [SettingCheckTool] Register setting_check_read/write tools for check reports.
+memory_tool [MemoryTool]  Register memory_read/write tools for tool-specific memory.
 """
 
 from __future__ import annotations
 
-from webui.patches import channels, config, important_warn_tool, ledger_tool, mcp_dynamic, network, prompt, provider, session, setting_check_tool, skills, status_tool, subagent, token_estimation, trip_briefing_tool
+from webui.patches import channels, config, important_warn_tool, ledger_tool, memory_tool, mcp_dynamic, network, prompt, provider, session, setting_check_tool, skills, status_tool, subagent, token_estimation, trip_briefing_tool
 
 
 def apply_all() -> None:
@@ -43,3 +44,4 @@ def apply_all() -> None:
     important_warn_tool.apply()
     trip_briefing_tool.apply()
     setting_check_tool.apply()
+    memory_tool.apply()

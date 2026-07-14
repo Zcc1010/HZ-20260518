@@ -203,7 +203,7 @@
     "title": "Tools"
   },
   "setupGuide": {
-    "title": "Welcome to 皖电至尊宝",
+    "title": "Welcome to 皖电智尊保",
     "description": "Complete the following setup to start using AI assistant features.",
     "step1Title": "Configure Model Provider",
     "step1Description": "Select and configure at least one AI model provider (e.g., OpenAI, Anthropic) and enter your API Key.",
@@ -213,7 +213,7 @@
     "complete": "Complete",
     "mustComplete": "Please complete the setup to continue",
     "agentConfigRequired": "Please select provider and enter model name",
-    "setupComplete": "Setup complete! Welcome to 皖电至尊宝"
+    "setupComplete": "Setup complete! Welcome to 皖电智尊保"
   },
   "mcp": {
     "title": "MCP Servers",
@@ -498,6 +498,19 @@
     "spanish": "Español",
     "optional": "Optional",
     "dismiss": "Dismiss"
+  },
+  "memory": {
+    "title": "Tool Memory",
+    "description": "Manage tool-specific memories. AI uses these memories to provide more accurate responses",
+    "edit": "Edit Memory",
+    "saveSuccess": "Memory saved",
+    "saveError": "Failed to save memory",
+    "empty": "No memory content",
+    "placeholder": "Enter tool-specific memory content...\n\nFor example:\n- This tool parses power system wave record files\n- Default station: 500kV substation\n- Output format: include fault time and waveform charts",
+    "reset": "Reset",
+    "resetConfirm": "Are you sure you want to clear this tool's memory?",
+    "waveRecord": "Wave Record Memory",
+    "settingCheck": "Setting Check Memory"
   },
   "pwa": {
     "updateAvailable": "A new version is available",

@@ -15,7 +15,7 @@ _ALGORITHM = "HS256"
 _TOKEN_EXPIRE_DAYS = 7
 _AUTHLESS_USER = {
     "id": "local-admin",
-    "username": "皖电至尊宝",
+    "username": "皖电智尊保",
     "role": "admin",
     "created_at": datetime(1970, 1, 1, tzinfo=timezone.utc).isoformat(),
 }

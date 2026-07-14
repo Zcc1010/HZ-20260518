@@ -205,7 +205,7 @@
     "title": "工具"
   },
   "setupGuide": {
-    "title": "欢迎使用 皖电至尊宝",
+    "title": "欢迎使用 皖电智尊保",
     "description": "首次使用需要完成以下配置，才能开始使用 AI 助手功能。",
     "step1Title": "配置模型提供商",
     "step1Description": "选择并配置至少一个 AI 模型提供商（如 OpenAI、Anthropic 等），填入 API Key。",
@@ -215,7 +215,7 @@
     "complete": "完成",
     "mustComplete": "请完成配置后再继续",
     "agentConfigRequired": "请选择提供商和填写模型名称",
-    "setupComplete": "配置完成！欢迎使用 皖电至尊宝"
+    "setupComplete": "配置完成！欢迎使用 皖电智尊保"
   },
   "mcp": {
     "title": "MCP 服务器",
@@ -502,6 +502,19 @@
     "spanish": "Español",
     "optional": "可选",
     "dismiss": "忽略"
+  },
+  "memory": {
+    "title": "工具记忆",
+    "description": "管理工具的专属记忆，AI 会基于这些记忆提供更精准的回答",
+    "edit": "编辑记忆",
+    "saveSuccess": "记忆已保存",
+    "saveError": "保存记忆失败",
+    "empty": "暂无记忆内容",
+    "placeholder": "输入工具的专属记忆内容...\n\n例如：\n- 该工具用于解析电力系统录波文件\n- 默认厂站：500kV 变电站\n- 输出格式要求：包含故障时间和波形图",
+    "reset": "重置",
+    "resetConfirm": "确定要清空此工具的记忆吗？",
+    "waveRecord": "录波解析记忆",
+    "settingCheck": "定值校核记忆"
   },
   "pwa": {
     "updateAvailable": "发现新版本，点击立即更新",

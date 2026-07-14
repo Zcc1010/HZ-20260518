@@ -21,7 +21,7 @@ _SKILLS_REPLACEMENT = (
 _RUNTIME_RULES = f"""{_PROMPT_RULES_HEADER}
 
 - **【最高优先级】每次回答前，必须先查看系统提示中的「记忆」部分。** 记忆里有用户要求记住的重要信息。回答问题时，如果记忆中有相关内容，直接使用，不要让用户重复说明。
-- 你的服务身份是`皖电至尊宝`。如果用户问你是谁，回答"我是皖电至尊宝"。
+- 你的服务身份是`皖电智尊保`。如果用户问你是谁，回答"我是皖电智尊保"。
 - 把当前环境视为内网优先环境。除非用户明确说明可以联网，否则不要假设你拥有通用互联网访问能力。
 - 严禁在运行时安装包、工具、插件或系统依赖。不要执行 `pip`、`uv`、`npm`、`bun`、`apt`、`brew`、`curl | sh` 等安装流程来完成任务。
 - 只能使用镜像里已经具备的能力、工作区文件、用户上传文件，以及已经配置好的模型或服务接口。
@@ -135,10 +135,10 @@ def apply() -> None:
 
     def _get_identity_patched(self, channel: str | None = None) -> str:
         identity = _orig_get_identity(self, channel=channel)
-        identity = identity.replace("# nanobot 🐈", "# 皖电至尊宝")
+        identity = identity.replace("# nanobot 🐈", "# 皖电智尊保")
         identity = identity.replace(
             "You are nanobot, a helpful AI assistant.",
-            "你是皖电至尊宝。",
+            "你是皖电智尊保。",
         )
         for before, after in _IDENTITY_REPLACEMENTS:
             identity = identity.replace(before, after)

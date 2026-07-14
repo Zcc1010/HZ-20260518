@@ -68,7 +68,11 @@ async function fetchJobs(): Promise<SettingCheckJob[]> {
 
 const PAGE_SIZE = 20;
 
-export function SettingCheckWorkspace() {
+interface SettingCheckWorkspaceProps {
+  selectedJob?: SettingCheckJob | null;
+}
+
+export function SettingCheckWorkspace({ selectedJob }: SettingCheckWorkspaceProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -262,6 +266,226 @@ export function SettingCheckWorkspace() {
 
   const selectedCount = selectedIds.size;
 
+  // If a job is selected from the sidebar, show job details
+  if (selectedJob) {
+    return (
+      <>
+        <div className="flex flex-col h-full gap-3 overflow-hidden px-4 py-3">
+          <div className="flex flex-col gap-3 rounded-[20px] border border-[#e0e0e0] bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between shrink-0">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-[#888]">
+                {t("agentPlayground.title")}
+              </p>
+              <h2 className="brand-display mt-2 text-2xl text-[#000]">
+                {t("agentPlayground.apps.settingCheck.title")}
+              </h2>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <Button
+                onClick={() => navigate('/setting-check-v2')}
+                variant="outline"
+                className="gap-2 border-[#84aca9] bg-[#f0f7fa] text-[#00706b] hover:bg-[#e0f0f0]"
+              >
+                <FolderOpen className="h-4 w-4" />
+                文件管理
+              </Button>
+              <Button
+                onClick={() => setDialogOpen(true)}
+                className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]"
+              >
+                <Plus className="h-4 w-4" />
+                {t("agentPlayground.create")}
+              </Button>
+            </div>
+          </div>
+
+          {/* Job Details Card */}
+          <div className="rounded-[20px] border border-[#e0e0e0] bg-white shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-auto min-h-0 p-6">
+              <div className="max-w-2xl mx-auto space-y-6">
+                {/* Header */}
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-[#0d5d57]">
+                      {selectedJob.station || selectedJob.device || "-"}
+                    </h3>
+                    <p className="text-sm text-[#555] mt-1">
+                      {selectedJob.device && selectedJob.station !== selectedJob.device ? selectedJob.device : ""}
+                    </p>
+                    <p className="text-sm text-[#888] mt-1">
+                      {t("agentPlayground.settingCheck.table.createdAt")}: {formatDateTime(selectedJob.created_at)}
+                    </p>
+                  </div>
+                  <Badge className={cn("rounded-full px-3 py-1 font-medium", statusBadgeClass(selectedJob.status))}>
+                    {t(`agentPlayground.status.${selectedJob.status}`)}
+                  </Badge>
+                </div>
+
+                {/* Progress */}
+                {selectedJob.status === "processing" && selectedJob.progress > 0 && (
+                  <div className="space-y-2">
+                    <div className="h-2 bg-[#e8f0f0] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#298c88] to-[#00706b] transition-all duration-300"
+                        style={{ width: `${selectedJob.progress}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-[#666]">
+                      <span>{selectedJob.progress}%</span>
+                      {selectedJob.progress_message && (
+                        <span className="truncate ml-2">{selectedJob.progress_message}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Error */}
+                {selectedJob.error_message && (
+                  <div className="rounded-lg border border-red-300 bg-[#f5d5d5]/50 p-4 text-sm text-[#cc3333]">
+                    {selectedJob.error_message}
+                  </div>
+                )}
+
+                {/* Evaluation */}
+                <div className="space-y-2">
+                  <Label className="text-[#298c88]">{t("agentPlayground.settingCheck.table.evaluation")}</Label>
+                  {editingId === selectedJob.id ? (
+                    <textarea
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onBlur={() => saveEvaluation(selectedJob.id, editValue)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          saveEvaluation(selectedJob.id, editValue);
+                        }
+                        if (e.key === "Escape") setEditingId(null);
+                      }}
+                      autoFocus
+                      rows={3}
+                      className="w-full rounded-lg border border-[#298c88] bg-[#f0f7fa] px-3 py-2 text-sm text-[#000] outline-none resize-none"
+                    />
+                  ) : (
+                    <div
+                      onClick={() => {
+                        setEditingId(selectedJob.id);
+                        setEditValue(selectedJob.evaluation || "");
+                      }}
+                      className="min-h-[60px] cursor-pointer whitespace-pre-wrap break-words rounded-lg border border-[#e0e0e0] bg-[#f0f7fa] px-3 py-2 text-sm text-[#555] hover:bg-[#e0f0f0]"
+                      title={selectedJob.evaluation || t("agentPlayground.settingCheck.table.evaluationPlaceholder")}
+                    >
+                      {selectedJob.evaluation || (
+                        <span className="text-[#bbb]">{t("agentPlayground.settingCheck.table.evaluationPlaceholder")}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-3 pt-4 border-t border-[#e8f0f0]">
+                  {selectedJob.status === "completed" && selectedJob.download_url && (
+                    <a
+                      href={withBasePath(selectedJob.download_url)}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#00706b] hover:bg-[#0d5d57] text-white text-sm transition-colors"
+                    >
+                      <Download className="h-4 w-4" />
+                      {t("agentPlayground.download")}
+                    </a>
+                  )}
+                  {selectedJob.status === "completed" && selectedJob.preview_url && (
+                    <>
+                      <Button
+                        onClick={() => navigate(`/setting-check-v2?jobId=${selectedJob.id}`)}
+                        className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white"
+                      >
+                        <Zap className="h-4 w-4" />
+                        对话分析
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => openPreview(selectedJob.preview_url!, selectedJob.station || "定值校核报告")}
+                        className="gap-2 border-[#84aca9] text-[#00706b]"
+                      >
+                        <Eye className="h-4 w-4" />
+                        {t("agentPlayground.settingCheck.preview")}
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeleteTarget(selectedJob)}
+                    className="gap-2 border-[#d44] text-[#d44] hover:bg-[#f5d5d5]"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {t("agentPlayground.table.delete")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Reuse existing dialogs */}
+        <CreateSettingCheckDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onSuccess={(newJob) => {
+            setJobs((prev) => [newJob, ...prev]);
+          }}
+          onPreview={openPreview}
+        />
+
+        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+          <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-3xl max-h-[85vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="brand-display text-[#000]">{previewTitle}</DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-auto min-h-0 min-w-0 -mx-6 px-6">
+              {previewLoading ? (
+                <div className="flex items-center justify-center py-10 text-[#666]">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <span className="ml-2">加载中...</span>
+                </div>
+              ) : (
+                <MarkdownRenderer content={previewContent} />
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+          <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-[#000]">{t("agentPlayground.table.deleteConfirmTitle")}</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-[#555]">
+              {t("agentPlayground.table.deleteConfirmMessage", { name: deleteTarget?.station || deleteTarget?.id || "" })}
+            </p>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setDeleteTarget(null)}
+                className="border-[#e0e0e0] text-[#555]"
+              >
+                {t("agentPlayground.table.deleteCancel")}
+              </Button>
+              <Button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="bg-[#d44] hover:bg-[#b33] text-white"
+              >
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                {t("agentPlayground.table.deleteConfirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  // Default: show full table view
   return (
     <>
       <div className="flex flex-col h-full gap-3 overflow-hidden px-4 py-3">
@@ -662,6 +886,7 @@ export function SettingCheckWorkspace() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </>
   );
 }

@@ -432,8 +432,8 @@ export default function Chat() {
           {activeModule === "chat" && (
             <ChatWindow urlSessionKey={urlSessionKey} isLoading={!!currentSessionKey && !historyLoaded} />
           )}
-          {activeModule === "wave-record" && <WaveRecordWorkspace />}
-          {activeModule === "setting-check" && <SettingCheckWorkspace />}
+          {activeModule === "wave-record" && <WaveRecordWorkspace selectedJob={selectedWaveJob} />}
+          {activeModule === "setting-check" && <SettingCheckWorkspace selectedJob={selectedSettingJob} />}
         </div>
       </div>
     </div>

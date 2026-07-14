@@ -73,6 +73,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
         chat_feedback,
         config,
         cron,
+        fault_analysis,
         files,
         mcp,
         openai_proxy,
@@ -98,6 +99,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
     app.include_router(wave_record_parser.router, prefix="/api/wave-record-parser", tags=["wave-record-parser"])
     app.include_router(setting_check.router, prefix="/api/setting-check", tags=["setting-check"])
     app.include_router(setting_check_v2.router, prefix="/api/setting-check-v2", tags=["setting-check-v2"])
+    app.include_router(fault_analysis.router, prefix="/api/fault-analysis", tags=["fault-analysis"])
     app.include_router(cron.router, prefix="/api/cron", tags=["cron"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
     app.include_router(users.router, prefix="/api/users", tags=["users"])

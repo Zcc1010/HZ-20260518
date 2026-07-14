@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import { useAuthStore } from "../../stores/authStore";
 import { BRAND_ASSETS, BRAND_NAME } from "../../lib/branding";
 import { cn } from "../../lib/utils";
-import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen, MessageSquare, ChevronDown, BrainCircuit, AudioWaveform, FileCheck } from "lucide-react";
+import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen, MessageSquare, ChevronDown, BrainCircuit, AudioWaveform, FileCheck, Zap } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +39,7 @@ const GENERAL_ITEMS: NavItem[] = [
     children: [
       { path: "/wave-record", label: "nav.waveRecord", icon: AudioWaveform },
       { path: "/setting-check", label: "nav.settingCheck", icon: FileCheck },
+      { path: "/fault-analysis", label: "nav.faultAnalysis", icon: Zap },
     ],
   },
 ];

@@ -18,6 +18,7 @@
     "agentPlayground": "Smart Tools",
     "waveRecord": "Wave Record",
     "settingCheck": "Setting Check",
+    "faultAnalysis": "Fault Analysis",
     "section": {
       "general": "General",
       "admin": "Admin"
@@ -84,6 +85,9 @@
     "uploading": "Uploading...",
     "uploadFailed": "Upload failed",
     "searchSessions": "Search sessions...",
+    "waveRecord": "Wave Record",
+    "settingCheck": "Setting Check",
+    "faultAnalysis": "Fault Analysis",
     "revokeConfirmTitle": "Revoke Message",
     "revokeConfirmDescription": "This will delete this message and all subsequent messages. Continue?",
     "messageRevoked": "Message revoked",

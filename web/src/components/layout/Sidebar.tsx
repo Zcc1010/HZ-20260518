@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import { useAuthStore } from "../../stores/authStore";
 import { BRAND_ASSETS, BRAND_NAME } from "../../lib/branding";
 import { cn } from "../../lib/utils";
-import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen, Brain, MessageSquare, ChevronDown, BrainCircuit } from "lucide-react";
+import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen, MessageSquare, ChevronDown, BrainCircuit, AudioWaveform, FileCheck } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,8 +31,16 @@ interface NavItem {
 }
 
 const GENERAL_ITEMS: NavItem[] = [
-  { path: "/agentplayground", label: "nav.agentPlayground", icon: Brain },
   { path: "/chat", label: "nav.chat", icon: MessageSquare },
+  {
+    path: "/chat/tools",
+    label: "nav.agentPlayground",
+    icon: Puzzle,
+    children: [
+      { path: "/wave-record", label: "nav.waveRecord", icon: AudioWaveform },
+      { path: "/setting-check", label: "nav.settingCheck", icon: FileCheck },
+    ],
+  },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
@@ -44,17 +52,26 @@ const ADMIN_ITEMS: NavItem[] = [
   { path: "/system-config", label: "nav.systemConfig", icon: FileJson },
 ];
 
-function NavLink({ item, active, collapsed, isActive, location }: { item: NavItem; active: boolean; collapsed: boolean; isActive: (item: NavItem) => boolean; location: { pathname: string } }) {
+function NavLink({ item, active, collapsed, isActive, location, onToggle }: { item: NavItem; active: boolean; collapsed: boolean; isActive: (item: NavItem) => boolean; location: { pathname: string }; onToggle?: () => void }) {
   const { t } = useTranslation();
   const Icon = item.icon;
   const hasChildren = item.children && item.children.length > 0;
-  const [expanded, setExpanded] = useState(false);
+  // Auto-expand if any child is active
+  const hasActiveChild = item.children?.some(child => isActive(child)) ?? false;
+  const [expanded, setExpanded] = useState(hasActiveChild);
 
   if (hasChildren) {
     return (
       <div>
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => {
+            if (collapsed && onToggle) {
+              onToggle();
+              setExpanded(true);
+            } else {
+              setExpanded(!expanded);
+            }
+          }}
           title={collapsed ? t(item.label) : undefined}
           className={cn(
             "group flex w-full items-center rounded-2xl text-sm font-medium transition-all duration-200",
@@ -156,9 +173,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const navItems = GENERAL_ITEMS;
   const [showChangePwd, setShowChangePwd] = useState(false);
 
-  const isActive = (item: NavItem) =>
-    location.pathname === item.path ||
-    (item.path !== "/dashboard" && location.pathname.startsWith(item.path));
+  const isActive = (item: NavItem) => {
+    const currentPath = location.pathname;
+    const itemPath = item.path.split("?")[0]; // Remove query params if any
+
+    return currentPath === itemPath ||
+      (itemPath !== "/dashboard" && itemPath !== "/chat" && currentPath.startsWith(itemPath));
+  };
 
   const currentLangLabel = getLanguageLabel(i18n.language);
 
@@ -166,10 +187,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <aside
       className={cn(
         "flex h-full flex-col transition-[width] duration-300 ease-in-out overflow-hidden",
-        collapsed ? "w-14" : "w-48"
+        collapsed ? "w-14" : "w-56"
       )}
       style={{
-        width: collapsed ? undefined : "202px",
+        width: collapsed ? undefined : "232px",
         background: "hsl(var(--sidebar-bg))",
         boxShadow: "var(--sidebar-edge-shadow)",
       }}
@@ -194,8 +215,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             >
               <BrainCircuit className="h-6 w-6 text-white" />
             </div>
-            <div className="min-w-0">
-              <p className="brand-display brand-gradient-text text-xl leading-none">{BRAND_NAME}</p>
+            <div className="min-w-0 flex-1">
+              <p className="brand-display brand-gradient-text text-xl leading-none truncate">{BRAND_NAME}</p>
               <p className="mt-1 truncate text-[11px] text-[hsl(var(--sidebar-muted))]">智能服务台</p>
             </div>
           </div>
@@ -205,9 +226,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           title={collapsed ? t("nav.expand") : t("nav.collapse")}
           className={cn(
             "flex h-7 w-7 items-center justify-center rounded-md transition-all duration-200",
-            "text-[hsl(var(--sidebar-muted))] hover:bg-[hsl(var(--sidebar-hover-bg))] hover:text-[hsl(var(--sidebar-fg))]",
-            "opacity-0 group-hover:opacity-100",
-            collapsed && "opacity-100"
+            "text-[hsl(var(--sidebar-muted))] hover:bg-[hsl(var(--sidebar-hover-bg))] hover:text-[hsl(var(--sidebar-fg))]"
           )}
         >
           {collapsed
@@ -230,7 +249,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           )}
           <div className="space-y-0.5">
             {navItems.map((item) => (
-              <NavLink key={item.path} item={item} active={isActive(item)} collapsed={collapsed} isActive={isActive} location={location} />
+              <NavLink key={item.path} item={item} active={isActive(item)} collapsed={collapsed} isActive={isActive} location={location} onToggle={onToggle} />
             ))}
           </div>
         </div>
@@ -248,7 +267,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             )}
             <div className="space-y-0.5">
               {ADMIN_ITEMS.map((item) => (
-                <NavLink key={item.path} item={item} active={isActive(item)} collapsed={collapsed} isActive={isActive} location={location} />
+                <NavLink key={item.path} item={item} active={isActive(item)} collapsed={collapsed} isActive={isActive} location={location} onToggle={onToggle} />
               ))}
             </div>
           </div>

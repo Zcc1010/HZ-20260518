@@ -329,7 +329,6 @@ export function ChatWindow({ urlSessionKey, isLoading }: ChatWindowProps = {}) {
                 </div>
                 <div>
                   <p className="brand-display text-base text-[#0d5d57]">{BRAND_NAME}</p>
-                  <p className="text-xs text-slate-500">智能解析助手</p>
                 </div>
               </div>
             </div>

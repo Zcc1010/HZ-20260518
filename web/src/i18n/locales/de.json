@@ -199,7 +199,7 @@
     "title": "Werkzeuge"
   },
   "setupGuide": {
-    "title": "Willkommen bei 数智小徽",
+    "title": "Willkommen bei 皖电至尊宝",
     "description": "Schließen Sie die folgende Einrichtung ab, um die KI-Assistentenfunktionen zu nutzen.",
     "step1Title": "Modellanbieter konfigurieren",
     "step1Description": "Wählen und konfigurieren Sie mindestens einen KI-Modellanbieter (z.B. OpenAI, Anthropic) und geben Sie Ihren API-Schlüssel ein.",
@@ -209,7 +209,7 @@
     "complete": "Abschließen",
     "mustComplete": "Bitte schließen Sie die Einrichtung ab, um fortzufahren",
     "agentConfigRequired": "Bitte Anbieter auswählen und Modellnamen eingeben",
-    "setupComplete": "Einrichtung abgeschlossen! Willkommen bei 数智小徽"
+    "setupComplete": "Einrichtung abgeschlossen! Willkommen bei 皖电至尊宝"
   },
   "mcp": {
     "title": "MCP-Server",

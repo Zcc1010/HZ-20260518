@@ -199,7 +199,7 @@
     "title": "도구"
   },
   "setupGuide": {
-    "title": "数智小徽에 오신 것을 환영합니다",
+    "title": "皖电至尊宝에 오신 것을 환영합니다",
     "description": "AI 어시스턴트 기능을 사용하려면 다음 설정을 완료해 주세요.",
     "step1Title": "모델 제공자 설정",
     "step1Description": "AI 모델 제공자(예: OpenAI, Anthropic)를 하나 이상 선택하여 설정하고 API 키를 입력하세요.",
@@ -209,7 +209,7 @@
     "complete": "완료",
     "mustComplete": "계속하려면 설정을 완료해 주세요",
     "agentConfigRequired": "제공자를 선택하고 모델 이름을 입력해 주세요",
-    "setupComplete": "설정 완료! 数智小徽에 오신 것을 환영합니다"
+    "setupComplete": "설정 완료! 皖电至尊宝에 오신 것을 환영합니다"
   },
   "mcp": {
     "title": "MCP 서버",

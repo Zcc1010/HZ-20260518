@@ -13,7 +13,6 @@ import {
   FileJson,
   Users,
   X,
-  Brain,
 } from "lucide-react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 
@@ -49,15 +48,6 @@ export function MobileBottomTabs() {
       className="fixed bottom-0 left-0 right-0 z-40 flex bg-background/85 backdrop-blur-xl"
       style={{ paddingBottom: "env(safe-area-inset-bottom)", boxShadow: "var(--shadow-up)" }}
     >
-      {/* Agent Playground */}
-      <Link
-        to="/agentplayground"
-        className={cn(TAB_CLS, isActive("/agentplayground") ? ACTIVE_CLS : INACTIVE_CLS)}
-      >
-        <Brain className="h-5 w-5" />
-        <span>{t("nav.agentPlayground")}</span>
-      </Link>
-
       {/* Chat */}
       <Link
         to="/chat"

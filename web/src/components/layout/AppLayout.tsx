@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { MobileBottomTabs } from "./MobileBottomTabs";
@@ -11,12 +11,19 @@ import { cn } from "../../lib/utils";
 
 export default function AppLayout() {
   const { pathname } = useLocation();
-  const isChatPage = pathname.startsWith("/chat");
-  const [collapsed, setCollapsed] = useState(true);
+  const isChatPage = pathname.startsWith("/chat") || pathname === "/wave-record" || pathname === "/setting-check";
+  const [collapsed, setCollapsed] = useState(() => {
+    const saved = localStorage.getItem("sidebarCollapsed");
+    return saved === "true";
+  });
   const isMobile = useIsMobile();
   const mobileShowChat = useChatStore((s) => s.mobileShowChat);
   // Fixes iOS keyboard zoom + layout restore
   useIOSInputFix();
+
+  useEffect(() => {
+    localStorage.setItem("sidebarCollapsed", String(collapsed));
+  }, [collapsed]);
 
   return (
     <div

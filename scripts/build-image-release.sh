@@ -5,8 +5,13 @@ set -euo pipefail
 IMAGE_TAG="${IMAGE_TAG:-protect-webui:local}"
 RELEASE_DIR="${RELEASE_DIR:-deployment/release}"
 ARCHIVE_NAME="${ARCHIVE_NAME:-protect-webui-local.tar.gz}"
-PUBLISHED_PORT="${PUBLISHED_PORT:-18781}"
-CONTAINER_NAME="${CONTAINER_NAME:-protect-webui-local}"
+VERSION="${VERSION:-}"
+APT_MIRROR="${APT_MIRROR:-http://mirrors.aliyun.com}"
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
+PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple/}"
+PLATFORM="${PLATFORM:-}"
+PUBLISHED_PORT="${PUBLISHED_PORT:-18780}"
+CONTAINER_NAME="${CONTAINER_NAME:-protect-webui}"
 TIMEZONE="${TIMEZONE:-Asia/Shanghai}"
 WEBUI_LOG_LEVEL="${WEBUI_LOG_LEVEL:-INFO}"
 WEBUI_ONLY="${WEBUI_ONLY:-true}"
@@ -15,6 +20,8 @@ INSTANCE_ROOT="${INSTANCE_ROOT:-/data/nanobot/user/public}"
 CONFIG_FILE="${CONFIG_FILE:-/data/nanobot/config.json}"
 SKILLS_ROOT="${SKILLS_ROOT:-/data/nanobot/skills}"
 SKIP_BUILD=0
+
+export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
 usage() {
   cat <<'EOF'
@@ -30,6 +37,12 @@ Options:
   -h, --help               Show this help text
 
 Environment overrides:
+  VERSION                  WEBUI_VERSION build arg (default: pyproject.toml version)
+  APT_MIRROR               Debian apt mirror used during docker build
+  NPM_REGISTRY             npm registry used during docker build
+  PIP_INDEX_URL            Python package index used during docker build
+  DOCKER_BUILDKIT          Docker BuildKit switch (default: 1)
+  PLATFORM                 Optional docker build --platform value, for example linux/amd64
   PUBLISHED_PORT           Default published host port in generated compose file
   CONTAINER_NAME           Default container name in generated compose file
   TIMEZONE                 Default container timezone
@@ -78,6 +91,10 @@ ARCHIVE_PATH="${ABS_RELEASE_DIR}/${ARCHIVE_NAME}"
 SOURCE_RELEASE_DIR="${ROOT_DIR}/deployment/release"
 TMP_RELEASE_DIR=""
 
+if [[ -z "${VERSION}" ]]; then
+  VERSION="$(awk -F'"' '/^version = "/ {print $2; exit}' "${ROOT_DIR}/pyproject.toml")"
+fi
+
 cleanup() {
   if [[ -n "${TMP_RELEASE_DIR}" && -d "${TMP_RELEASE_DIR}" ]]; then
     rm -rf "${TMP_RELEASE_DIR}"
@@ -100,12 +117,27 @@ else
   require_cmd gzip
   COMPRESS_CMD="gzip"
 fi
+require_cmd awk
 
 if [[ "${SKIP_BUILD}" -eq 0 ]]; then
   echo "[release] building image ${IMAGE_TAG}"
-  DOCKER_BUILDKIT=1 docker build -t "${IMAGE_TAG}" "${ROOT_DIR}"
+  build_args=(
+    --build-arg "VERSION=${VERSION}"
+    --build-arg "APT_MIRROR=${APT_MIRROR}"
+    --build-arg "NPM_REGISTRY=${NPM_REGISTRY}"
+    --build-arg "PIP_INDEX_URL=${PIP_INDEX_URL}"
+    -t "${IMAGE_TAG}"
+  )
+  if [[ -n "${PLATFORM}" ]]; then
+    build_args=(--platform "${PLATFORM}" "${build_args[@]}")
+  fi
+  docker build --no-cache "${build_args[@]}" "${ROOT_DIR}"
 else
   echo "[release] skipping build, exporting existing image ${IMAGE_TAG}"
+  if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "Image does not exist: ${IMAGE_TAG}" >&2
+    exit 1
+  fi
 fi
 
 echo "[release] preparing ${ABS_RELEASE_DIR}"
@@ -124,6 +156,29 @@ for template_file in \
   fi
   cp "${SOURCE_RELEASE_DIR}/${template_file}" "${TMP_RELEASE_DIR}/${template_file}"
 done
+
+set_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local tmp_file
+  tmp_file="$(mktemp "${TMP_RELEASE_DIR}/env.XXXXXX")"
+  awk -v key="${key}" -v value="${value}" 'BEGIN { FS = OFS = "=" } $1 == key { $0 = key "=" value } { print }' "${file}" > "${tmp_file}"
+  mv "${tmp_file}" "${file}"
+}
+
+ENV_EXAMPLE="${TMP_RELEASE_DIR}/.env.example"
+if [[ -f "${ENV_EXAMPLE}" ]]; then
+  set_env_value "${ENV_EXAMPLE}" "CONTAINER_NAME" "${CONTAINER_NAME}"
+  set_env_value "${ENV_EXAMPLE}" "PUBLISHED_PORT" "${PUBLISHED_PORT}"
+  set_env_value "${ENV_EXAMPLE}" "TIMEZONE" "${TIMEZONE}"
+  set_env_value "${ENV_EXAMPLE}" "WEBUI_LOG_LEVEL" "${WEBUI_LOG_LEVEL}"
+  set_env_value "${ENV_EXAMPLE}" "WEBUI_ONLY" "${WEBUI_ONLY}"
+  set_env_value "${ENV_EXAMPLE}" "WEBUI_AUTH_DISABLED" "${WEBUI_AUTH_DISABLED}"
+  set_env_value "${ENV_EXAMPLE}" "INSTANCE_ROOT" "${INSTANCE_ROOT}"
+  set_env_value "${ENV_EXAMPLE}" "CONFIG_FILE" "${CONFIG_FILE}"
+  set_env_value "${ENV_EXAMPLE}" "SKILLS_ROOT" "${SKILLS_ROOT}"
+fi
 
 echo "[release] exporting image archive ${ARCHIVE_PATH}"
 docker save "${IMAGE_TAG}" | ${COMPRESS_CMD} -c > "${TMP_RELEASE_DIR}/${ARCHIVE_NAME}"

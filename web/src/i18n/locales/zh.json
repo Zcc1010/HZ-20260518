@@ -58,6 +58,8 @@
   },
   "chat": {
     "title": "会话",
+    "tabChat": "对话",
+    "tabTools": "智能工具",
     "newChat": "新建会话",
     "placeholder": "输入消息... (Shift+Enter 换行，Enter 发送)",
     "thinking": "思考中...",
@@ -203,17 +205,17 @@
     "title": "工具"
   },
   "setupGuide": {
-    "title": "欢迎使用 数智小徽",
+    "title": "欢迎使用 皖电至尊宝",
     "description": "首次使用需要完成以下配置，才能开始使用 AI 助手功能。",
     "step1Title": "配置模型提供商",
     "step1Description": "选择并配置至少一个 AI 模型提供商（如 OpenAI、Anthropic 等），填入 API Key。",
     "step2Title": "配置代理设置",
-    "step2Description": "选择默认使用的提供商和模型，开始与 AI 助手对话。",
+    "step2Description": "选择默认使用的提供商和模型，开始对话。",
     "startSetup": "开始配置",
     "complete": "完成",
     "mustComplete": "请完成配置后再继续",
     "agentConfigRequired": "请选择提供商和填写模型名称",
-    "setupComplete": "配置完成！欢迎使用 数智小徽"
+    "setupComplete": "配置完成！欢迎使用 皖电至尊宝"
   },
   "mcp": {
     "title": "MCP 服务器",
@@ -563,7 +565,7 @@
       },
       "tripBriefing": {
         "title": "跳闸简报",
-        "description": "查看跳闸简报并与 AI 对话分析故障原因。"
+        "description": "查看跳闸简报并分析故障原因。"
       }
     },
     "waveRecord": {

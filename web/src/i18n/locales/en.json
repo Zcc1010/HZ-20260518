@@ -58,6 +58,8 @@
   },
   "chat": {
     "title": "Chat",
+    "tabChat": "Chat",
+    "tabTools": "Smart Tools",
     "newChat": "New Chat",
     "placeholder": "Type a message... (Shift+Enter for new line, Enter to send)",
     "thinking": "Thinking...",
@@ -201,7 +203,7 @@
     "title": "Tools"
   },
   "setupGuide": {
-    "title": "Welcome to 数智小徽",
+    "title": "Welcome to 皖电至尊宝",
     "description": "Complete the following setup to start using AI assistant features.",
     "step1Title": "Configure Model Provider",
     "step1Description": "Select and configure at least one AI model provider (e.g., OpenAI, Anthropic) and enter your API Key.",
@@ -211,7 +213,7 @@
     "complete": "Complete",
     "mustComplete": "Please complete the setup to continue",
     "agentConfigRequired": "Please select provider and enter model name",
-    "setupComplete": "Setup complete! Welcome to 数智小徽"
+    "setupComplete": "Setup complete! Welcome to 皖电至尊宝"
   },
   "mcp": {
     "title": "MCP Servers",

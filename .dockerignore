@@ -9,7 +9,6 @@ openspec
 deployment
 nanobot_webui.egg-info
 web/node_modules
-web/dist
 web/dev-dist
 __pycache__
 *.pyc

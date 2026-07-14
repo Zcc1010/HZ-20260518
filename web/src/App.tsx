@@ -32,9 +32,9 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
     user: s.user,
     authlessEnabled: s.authlessEnabled,
   }));
-  if (authlessEnabled) return <Navigate to="/agentplayground" replace />;
+  if (authlessEnabled) return <Navigate to="/chat" replace />;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "admin") return <Navigate to="/agentplayground" replace />;
+  if (user.role !== "admin") return <Navigate to="/chat" replace />;
   return <>{children}</>;
 }
 
@@ -94,7 +94,7 @@ export default function App() {
     );
   }
 
-  const defaultPrivatePath = "/agentplayground";
+  const defaultPrivatePath = "/chat";
 
   return (
     <Suspense fallback={null}>
@@ -118,6 +118,8 @@ export default function App() {
         />
         <Route path="chat" element={<Chat />} />
         <Route path="chat/:sessionKey" element={<Chat />} />
+        <Route path="wave-record" element={<Chat />} />
+        <Route path="setting-check" element={<Chat />} />
         <Route path="feedback" element={<FeedbackPage />} />
         <Route
           path="providers"
@@ -182,7 +184,7 @@ export default function App() {
       </Route>
       <Route
         path="agentplayground"
-        element={<AgentPlayground />}
+        element={<Navigate to="/chat" replace />}
       />
       <Route
         path="trip-briefing/:jobId"

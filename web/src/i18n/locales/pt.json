@@ -199,7 +199,7 @@
     "title": "Tools"
   },
   "setupGuide": {
-    "title": "Bem-vindo ao 数智小徽",
+    "title": "Bem-vindo ao 皖电至尊宝",
     "description": "Conclua a configuração abaixo para começar a usar os recursos do assistente de IA.",
     "step1Title": "Configurar Provedor de Modelo",
     "step1Description": "Selecione e configure pelo menos um provedor de modelo de IA (ex.: OpenAI, Anthropic) e informe sua Chave de API.",
@@ -209,7 +209,7 @@
     "complete": "Concluir",
     "mustComplete": "Conclua a configuração para continuar",
     "agentConfigRequired": "Selecione um provedor e informe o nome do modelo",
-    "setupComplete": "Configuração concluída! Bem-vindo ao 数智小徽"
+    "setupComplete": "Configuração concluída! Bem-vindo ao 皖电至尊宝"
   },
   "mcp": {
     "title": "Servidores MCP",

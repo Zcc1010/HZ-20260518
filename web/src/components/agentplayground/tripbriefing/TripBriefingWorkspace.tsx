@@ -487,8 +487,7 @@ export function TripBriefingWorkspace() {
             <MessageSquare className="h-5 w-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs uppercase tracking-[0.18em] text-[#888]">AI 对话</p>
-            <h3 className="brand-display text-lg text-[#000]">{BRAND_NAME} 故障分析助手</h3>
+            <h3 className="brand-display text-lg text-[#000]">{BRAND_NAME}</h3>
           </div>
           <div className="flex items-center gap-2">
             {selectedJob && (

@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-from webui.services.agentplayground.models import APP_ID_G_FILE_COMPARE, AgentPlaygroundApp
+from webui.services.agentplayground.models import AgentPlaygroundApp
 
 
-_REGISTERED_APPS = (
-    AgentPlaygroundApp(
-        id=APP_ID_G_FILE_COMPARE,
-        name="G 文件对比",
-        description="上传 D5000 与新一代文件，生成可下载的对比报告。",
-    ),
-)
+_REGISTERED_APPS: tuple[AgentPlaygroundApp, ...] = ()
 
 
 def list_registered_apps() -> list[AgentPlaygroundApp]:

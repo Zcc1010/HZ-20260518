@@ -1,7 +1,7 @@
 # protection webui — Docker Compose for deployment
 services:
   webui:
-    image: protection-webui:local
+    image: protect-webui:local
     container_name: ${CONTAINER_NAME:-protection-webui}
     environment:
       - TZ=${TIMEZONE:-Asia/Shanghai}

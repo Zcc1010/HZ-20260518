@@ -264,8 +264,8 @@ export function SettingCheckWorkspace() {
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="flex flex-col gap-4 rounded-[24px] border border-[#e0e0e0] bg-white p-4 shadow-md sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col h-full gap-3 overflow-hidden px-4 py-3">
+        <div className="flex flex-col gap-3 rounded-[20px] border border-[#e0e0e0] bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between shrink-0">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-[#888]">
               {t("agentPlayground.title")}
@@ -317,7 +317,7 @@ export function SettingCheckWorkspace() {
 
         {/* 筛选栏 */}
         {!loading && !error && jobs.length > 0 && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="relative flex-1 max-w-[240px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#888]" />
               <input
@@ -355,8 +355,8 @@ export function SettingCheckWorkspace() {
         )}
 
         {!loading && !error && (
-          <div className="rounded-[28px] border border-[#e0e0e0] bg-white shadow-md overflow-hidden flex flex-col" style={{ height: "calc(100vh - 252px)" }}>
-            <div className="flex-1 overflow-auto">
+          <div className="rounded-[20px] border border-[#e0e0e0] bg-white shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-auto min-h-0">
               <table className="w-full text-sm border-separate border-spacing-0" style={{ minWidth: 700 }}>
                 <thead className="bg-[#0d5d57] sticky top-0 z-10">
                   <tr className="border-b border-[#e8f0f0]">
@@ -521,7 +521,7 @@ export function SettingCheckWorkspace() {
                                 type="button"
                                 onClick={() => navigate(`/setting-check-v2?jobId=${job.id}`)}
                                 className="inline-flex items-center text-[#298c88] hover:text-[#0d5d57] transition-colors"
-                                title="AI 对话"
+                                title="对话分析"
                               >
                                 <Zap className="h-4 w-4" />
                               </button>

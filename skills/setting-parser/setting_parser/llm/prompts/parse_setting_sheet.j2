@@ -1,0 +1,61 @@
+你是一位继电保护定值单抽取专家。请从下列定值单内容中抽取结构化字段。
+
+## 装置型号
+{{ model_raw }}
+
+## 关键定值项提示（来自同型号说明书，可参考字段命名）
+{{ kb_hint }}
+
+## 定值单内容（markitdown 提取 + 关键表格）
+{{ markdown_text }}
+
+## 输出要求
+请输出严格符合以下 schema 的 JSON：
+{
+  "device": {
+    "station": "变电站名",
+    "voltage_kv": <int>,
+    "equipment_type": "线路保护|母线保护|变压器保护|主变中性点保护|其他",
+    "equipment_name": "线路/母线/主变名",
+    "protection_set": "第一套|第二套|单套"
+  },
+  "protection_device": {
+    "vendor": "厂家名",
+    "model_raw": "原型号字符串",
+    "model_base": "基础型号（如 PCS-931）",
+    "firmware_version": "软件版本",
+    "device_id": "装置 ID"
+  },
+  "equipment_params": {
+    "ct_ratio_primary": <int>,
+    "ct_ratio_secondary": <int>,
+    "pt_ratio_primary": <int>,
+    "pt_ratio_secondary": <int>,
+    "rated_current_a": <float>
+  },
+  "settings": [
+    {
+      "item_no": "序号",
+      "name_raw": "定值项原名",
+      "value": "原值字符串",
+      "value_numeric": <float or null>,
+      "unit": "单位 or null",
+      "function": "所属保护功能"
+    }
+  ],
+  "control_words": [
+    {
+      "name_raw": "控制字原名",
+      "value": "0/1 或 hex 字符串",
+      "meaning": "投退/含义"
+    }
+  ],
+  "trip_matrix": null,  // 如有则填 {format: "hex", entries: [...]}
+  "parse_warnings": ["抽取中遇到的问题"]
+}
+
+注意事项：
+1. 抽不到则填 null 并在 parse_warnings 记录
+2. value_numeric 仅在明显是数字时填
+3. firmware_version 提取 "V4.10" 等形式
+4. 严格按 JSON 输出，不要有解释性文字

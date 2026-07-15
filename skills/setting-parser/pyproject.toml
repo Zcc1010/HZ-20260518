@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "setting-parser"
+version = "0.1.0"
+description = "调度定值单解析 CLI 工具"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "pydantic>=2.6",
+    "openai>=1.30",
+    "markitdown[pdf]>=0.0.1",
+    "paddleocr>=2.7",
+    "openpyxl>=3.1",
+    "pandas>=2.2",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+]
+
+[project.scripts]
+setting-parser = "setting_parser.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/setting_parser"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

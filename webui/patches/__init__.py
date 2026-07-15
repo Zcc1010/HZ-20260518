@@ -1,8 +1,8 @@
 """webui.patches — monkey-patches applied to nanobot at startup.
-
+ 
 Each sub-module targets one concern and exposes a single ``apply()`` function.
 Call ``apply_all()`` once at process start (done by ``webui.__main__``).
-
+ 
 Patch inventory
 ───────────────
 channels    [Channel]     Relax access-control managed by the WebUI.
@@ -20,11 +20,13 @@ important_warn_tool [ImportantWarnTool] Register important_warn_query tool for a
 trip_briefing_tool [TripBriefingTool] Register trip_briefing_read/write tools for briefing reports.
 setting_check_tool [SettingCheckTool] Register setting_check_read/write tools for check reports.
 memory_tool [MemoryTool]  Register memory_read/write tools for tool-specific memory.
+risk_assessment_tool [RiskAssessmentTool] Register risk_assessment_collect tool for 6-source data orchestration.
+setting_parser_tool [SettingParserTool] Register setting_parse_device tool for auto download + parse setting sheets.
 """
-
+ 
 from __future__ import annotations
-
-from webui.patches import channels, config, important_warn_tool, ledger_tool, memory_tool, mcp_dynamic, network, prompt, provider, session, setting_check_tool, skills, status_tool, subagent, token_estimation, trip_briefing_tool
+ 
+from webui.patches import channels, config, important_warn_tool, ledger_tool, memory_tool, mcp_dynamic, network, prompt, provider, risk_assessment_tool, session, setting_check_tool, setting_parser_tool, skills, status_tool, subagent, token_estimation, trip_briefing_tool
 
 
 def apply_all() -> None:
@@ -45,3 +47,5 @@ def apply_all() -> None:
     trip_briefing_tool.apply()
     setting_check_tool.apply()
     memory_tool.apply()
+    risk_assessment_tool.apply()
+    setting_parser_tool.apply()

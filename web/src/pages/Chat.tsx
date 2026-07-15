@@ -14,11 +14,11 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { nanoid } from "nanoid";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { ArrowLeft, MessageSquare, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Search, Trash2, FileText, ShieldAlert } from "lucide-react";
 import { cn, formatDate } from "../lib/utils";
 import { CHANNEL_ICONS } from "../lib/channelIcons";
 
-type ActiveModule = "chat" | "wave-record" | "setting-check";
+type ActiveModule = "chat" | "wave-record" | "setting-check" | "setting-parser" | "risk-assessment";
 
 /** Extract the channel prefix from a session key, e.g. "feishu", "telegram", "web" */
 function channelOf(key: string): string {
@@ -81,6 +81,8 @@ export default function Chat() {
   const activeModule: ActiveModule = useMemo(() => {
     if (location.pathname === "/wave-record") return "wave-record";
     if (location.pathname === "/setting-check") return "setting-check";
+    if (location.pathname === "/setting-parser") return "setting-parser";
+    if (location.pathname === "/risk-assessment") return "risk-assessment";
     return "chat";
   }, [location.pathname]);
 
@@ -88,13 +90,51 @@ export default function Chat() {
   const [selectedWaveJob, setSelectedWaveJob] = useState<WaveRecordJob | null>(null);
   const [selectedSettingJob, setSelectedSettingJob] = useState<SettingCheckJob | null>(null);
 
+  // Per-module session keys (chat module reuses the main session)
+  const moduleSessionsRef = useRef<Record<string, string | null>>({});
+  const prevModuleRef = useRef<ActiveModule>(activeModule);
+
   // Sync URL sessionKey to store
   useEffect(() => {
     if (urlSessionKey && !urlKeyInitializedRef.current) {
+      urlSessionKey && (moduleSessionsRef.current["chat"] = urlSessionKey);
       urlKeyInitializedRef.current = true;
       setCurrentSession(urlSessionKey);
     }
   }, [urlSessionKey]);
+
+  // Switch session when module changes
+  useEffect(() => {
+    const prevModule = prevModuleRef.current;
+    if (prevModule === activeModule) return;
+    prevModuleRef.current = activeModule;
+
+    // Save current session to the previous module
+    moduleSessionsRef.current[prevModule] = currentSessionKey;
+
+    if (activeModule === "chat") {
+      // Restore chat session
+      const chatSession = moduleSessionsRef.current["chat"];
+      if (chatSession) {
+        setCurrentSession(chatSession);
+        loadedKeyRef.current = chatSession;
+      }
+    } else if (activeModule === "setting-parser" || activeModule === "risk-assessment") {
+      // Check if this module already has a session
+      let moduleSession = moduleSessionsRef.current[activeModule];
+      if (!moduleSession) {
+        // Create a new session for this module
+        const hexId = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) =>
+          b.toString(16).padStart(2, "0")
+        ).join("");
+        moduleSession = `web:${user?.id}:${hexId}`;
+        moduleSessionsRef.current[activeModule] = moduleSession;
+      }
+      loadedKeyRef.current = moduleSession;
+      loadedCountRef.current = 0;
+      setCurrentSession(moduleSession);
+    }
+  }, [activeModule, currentSessionKey, setCurrentSession, user?.id]);
 
   const lastSetMsgsRef = useRef<ChatMessage[]>([]);
 
@@ -203,12 +243,17 @@ export default function Chat() {
     if (isMobile) setMobileShowChat(true);
   };
 
+  // Whether to show the B panel (session/job list sidebar)
+  const showBPanel = activeModule === "chat" || activeModule === "wave-record" || activeModule === "setting-check";
+
   // B panel title
   const bPanelTitle = useMemo(() => {
     switch (activeModule) {
       case "chat": return t("chat.sessions", "会话列表");
       case "wave-record": return t("chat.waveRecord", "录波解析");
       case "setting-check": return t("chat.settingCheck", "定值校核");
+      case "setting-parser": return t("nav.settingParser", "定值单解析");
+      case "risk-assessment": return t("nav.riskAssessment", "运行风险评估");
     }
   }, [activeModule, t]);
 
@@ -217,8 +262,8 @@ export default function Chat() {
       "flex min-h-0",
       isMobile ? "flex-1 flex-col" : "h-full gap-4 p-5"
     )}>
-      {/* B Panel - List Area (hidden for tools) */}
-      <aside
+      {/* B Panel - List Area (hidden for tools and pure-chat modules) */}
+      {showBPanel && <aside
         className={cn(
           "flex shrink-0 flex-col overflow-hidden",
           isMobile
@@ -395,7 +440,7 @@ export default function Chat() {
             <Plus className="h-6 w-6" />
           </button>
         )}
-      </aside>
+      </aside>}
 
       {/* C Panel - Content Area */}
       <div
@@ -419,8 +464,8 @@ export default function Chat() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <span className="flex-1 truncate text-sm font-medium">
-              {activeModule === "chat"
-                ? (currentSessionKey ? sessionDisplayLabel(currentSessionKey, undefined, t("chat.newChat")) : t("nav.chat"))
+              {(activeModule === "chat" || activeModule === "setting-parser" || activeModule === "risk-assessment")
+                ? (currentSessionKey ? sessionDisplayLabel(currentSessionKey, undefined, t("chat.newChat")) : bPanelTitle)
                 : bPanelTitle
               }
             </span>
@@ -429,8 +474,13 @@ export default function Chat() {
 
         {/* Content */}
         <div className="flex flex-col flex-1 overflow-hidden">
-          {activeModule === "chat" && (
-            <ChatWindow urlSessionKey={urlSessionKey} isLoading={!!currentSessionKey && !historyLoaded} />
+          {(activeModule === "chat" || activeModule === "setting-parser" || activeModule === "risk-assessment") && (
+            <ChatWindow
+              urlSessionKey={urlSessionKey}
+              isLoading={!!currentSessionKey && !historyLoaded}
+              moduleTitle={activeModule !== "chat" ? bPanelTitle : undefined}
+              moduleIcon={activeModule === "setting-parser" ? FileText : activeModule === "risk-assessment" ? ShieldAlert : undefined}
+            />
           )}
           {activeModule === "wave-record" && <WaveRecordWorkspace selectedJob={selectedWaveJob} />}
           {activeModule === "setting-check" && <SettingCheckWorkspace selectedJob={selectedSettingJob} />}

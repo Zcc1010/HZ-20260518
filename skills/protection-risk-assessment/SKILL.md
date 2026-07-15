@@ -3,9 +3,10 @@ name: protection-risk-assessment
 description: >
   继电保护运行风险评估智能体。当用户询问厂站/间隔/保护装置的运行风险、缺陷超时、设备健康度，
   或要求"评估一下XX站XX线路保护风险"、"今天有哪些危急缺陷超时"、"给出本周风险简报"时使用。
-  整合静态台账、实时运行（定值/状态/压板/模拟量）、历史告警、缺陷记录、检修工作五源数据，
+  ⚠️ 整合静态台账、实时运行状态、保信定值、压板/模拟量、历史告警、检修记录六源数据（不可仅用台账+告警），
   走"规则驱动层（告警状态机 + 检修过滤 + 频发抖动）→ 智能诊断层 → FAHP 风险融合层"三段式评估，
   按间隔（一次设备）聚合输出四级（危急/严重/一般/提示）结构化风险简报，活页可追溯。
+  在线模式下必须完成六源数据采集后再分析，禁止跳过任何一源。
 ---
 
 # 继电保护运行风险评估智能体 v2
@@ -44,28 +45,108 @@ description: >
 
 本技能支持**在线模式**和**离线模式**两种数据获取方式。
 
-### 在线模式（Agent 对话中使用）
+### 在线模式（Agent 对话中使用）—— 强制执行六源数据采集
 
-使用 nanobot 现有工具获取实时数据：
+> ⚠️ **核心约束：必须先完成全部六源数据采集，才能进入分析阶段。**
+> **推荐方式：调用 `risk_assessment_collect(stName=<厂站名>)` 一次性获取六源数据。**
 
-| 维度 | 工具调用 | 返回数据 |
-|---|---|---|
-| 静态台账 | `ledger_query(stName=厂站名)` | 设备列表（含 uniqueCode、型号、厂家、投运年限等） |
-| 运行状态 | `status_query(voltageType, protectType, stName)` | 主保/后备/重合闸/校核状态统计 |
-| 保信定值 | `ledger_query(uniqueCode, queryType=bx_setting)` | 装置实时定值（当前值/标准值/上下限） |
-| 硬压板 | `ledger_query(uniqueCode, queryType=hard_press)` | 硬压板状态 |
-| 软压板 | `ledger_query(uniqueCode, queryType=soft_press)` | 软压板状态 |
-| 模拟量 | `ledger_query(uniqueCode, queryType=analog)` | 模拟量数据 |
-| 装置历史告警 | `ledger_query(uniqueCode, queryType=history)` | 告警记录（含 soeTime、告警类型） |
-| 保护告警 | `ledger_query(uniqueCode, queryType=protect_alarm)` | 保护告警（动作/复归） |
-| 检修记录 | `ledger_query(uniqueCode, queryType=maintenance)` | 检修工作记录 |
+**推荐方式（一步到位，与客户端离线脚本逻辑一致）：**
 
-**在线模式工作流程：**
-1. 用户询问 → 意图解析（厂站/间隔/时间窗）
-2. 调用 `ledger_query(stName=厂站)` 获取设备列表
-3. 对目标设备逐一调用 `status_query` + `ledger_query(queryType=...)` 获取多维数据
-4. 按照本技能的规则引擎进行风险评估
-5. 输出结构化风险简报
+调用 `risk_assessment_collect(stName=<厂站名>)` 工具，内部自动完成以下六源采集并返回结构化数据包：
+1. 台账 → 获取厂站所有保护装置列表（含 uniqueCode）
+2. 运行状态 → 查询校核状态、设备状态、通信状态
+3. 保信定值 → 获取每台装置的实时定值（当前值/标准值/上下限）
+4. 压板/模拟量 → 获取硬压板、软压板、模拟量数据
+5. 告警 → 获取今日告警记录和保护告警状态
+6. 检修 → 获取检修工作记录
+
+**注意：调用此工具后，无需再单独调用 ledger_query 或 status_query。**
+
+**手动方式（仅当编排工具不可用时使用）：**
+
+| # | 维度 | 工具调用 | 返回数据 |
+|---|---|---|---|
+| 1 | 静态台账 | `ledger_query(stName=厂站名)` | 设备列表（含 uniqueCode、型号、厂家、投运年限等） |
+| 2 | 运行状态 | `status_query(voltageType, protectType, stName)` | 主保/后备/重合闸/校核状态统计 |
+| 3 | 保信定值 | `ledger_query(uniqueCode, queryType=bx_setting)` | 装置实时定值（当前值/标准值/上下限） |
+| 4 | 硬压板 | `ledger_query(uniqueCode, queryType=hard_press)` | 硬压板状态 |
+|   | 软压板 | `ledger_query(uniqueCode, queryType=soft_press)` | 软压板状态 |
+|   | 模拟量 | `ledger_query(uniqueCode, queryType=analog)` | 模拟量数据 |
+| 5 | 装置历史告警 | `ledger_query(uniqueCode, queryType=history, starttime=today_start, endtime=today_end)` | 告警记录（含 soeTime、告警类型） |
+|   | 保护告警 | `ledger_query(uniqueCode, queryType=protect_alarm)` | 保护告警（动作/复归） |
+| 6 | 检修记录 | `ledger_query(uniqueCode, queryType=maintenance)` | 检修工作记录 |
+
+**六源数据采集流程：**
+
+> **推荐：调用 `risk_assessment_collect(stName=<厂站名>)` 一步完成六源采集。**
+> 
+> 以下手动流程仅作备选参考。
+
+#### 阶段一：数据采集（必须完成全部 6 步后才能进入阶段二）
+
+```
+第1步 ▸ 台账采集
+  调用 ledger_query(stName=<厂站名>) 或 risk_assessment_collect(stName=<厂站名>) 获取设备列表。
+  ├─ 产出: 设备清单 (uniqueCode[], voltageType, protectType)
+
+第2步 ▸ 运行状态采集（不可跳过）
+  调用 status_query(voltageType=..., protectType=..., stName=<厂站名>)。
+  ├─ 产出: 全站运行状态统计数据
+
+第3步 ▸ 定值采集（不可跳过）
+  调用 ledger_query(uniqueCode=<code>, queryType=bx_setting)。
+  ├─ 产出: 每台装置的定值数据
+
+第4步 ▸ 压板+模拟量采集（不可跳过）
+  调用 ledger_query(uniqueCode=<code>, queryType=hard_press)
+        ledger_query(uniqueCode=<code>, queryType=soft_press)
+        ledger_query(uniqueCode=<code>, queryType=analog)
+  ├─ 产出: 每台装置的压板状态和模拟量数据
+
+第5步 ▸ 告警数据采集
+  调用 ledger_query(uniqueCode=<code>, queryType=history, starttime=<today 00:00:00>, endtime=<now>)
+        ledger_query(uniqueCode=<code>, queryType=protect_alarm)
+  ├─ 产出: 每台装置今日告警记录和保护告警状态
+
+第6步 ▸ 检修数据采集（不可跳过）
+  调用 ledger_query(uniqueCode=<code>, queryType=maintenance)。
+  ├─ 产出: 每台装置的检修工作记录
+```
+
+#### 阶段二：数据完整性校验 → 风险评估
+
+```
+第7步 ▸ 六源完整性自检（进入分析前必须执行）
+  逐项核对六源数据是否已采集:
+    [ ] 台账     — 是否已获取设备列表?
+    [ ] 运行状态 — 是否已调用 status_query?
+    [ ] 定值     — 是否已对每台设备调用 bx_setting?
+    [ ] 压板     — 是否已对每台设备调用 hard_press + soft_press + analog?
+    [ ] 告警     — 是否已对每台设备调用 history + protect_alarm?
+    [ ] 检修     — 是否已对每台设备调用 maintenance?
+  
+  如果任何一项未完成 → 回到阶段一补全对应步骤。
+  六项全部完成 → 进入第8步。
+
+第8步 ▸ 执行风险评估
+  将采集的六源数据按照本技能的规则引擎进行评估:
+    - 告警状态机（信号持续/频发抖动判断）
+    - 规则驱动层（A1-E4 确定性规则命中）
+    - 检修时段过滤（检修窗口内告警降级）
+    - 健康度评分（H1-H4 维度打分）
+    - FAHP 风险融合（五维加权综合）
+
+第9步 ▸ 输出结构化风险简报
+  按间隔聚合输出，含四级风险等级、健康度、置信度、处置建议。
+```
+
+**在线模式禁止行为：**
+- ❌ 只采集台账和告警就输出结论 → 六源不完整，结论不可靠
+- ❌ 跳过 status_query → 缺少运行状态，无法判断 B3 通讯异常、A3 参数异常
+- ❌ 跳过 bx_setting → 缺少定值数据，无法检测 E4 定值漂移
+- ❌ 跳过 hard_press/soft_press/analog → 缺少压板/模拟量，无法检测 E1/E2/E3/D3 规则
+- ❌ 跳过 maintenance → 缺少检修记录，无法执行检修过滤和 F1/F2 检修后规则
+- ❌ 在数据采集中途就开始分析 → 必须完成全部 6 步采集后统一分析
 
 ### 离线模式（直接运行脚本）
 
@@ -92,6 +173,7 @@ python skills/protection-risk-assessment/scripts/run_risk_assessment.py \
 
 在线模式获取的数据字段与离线 JSON 的对应关系：
 
+#### 台账 (inventory)
 | 离线 JSON 字段 | 在线工具返回字段 | 说明 |
 |---|---|---|
 | `station_name` | `ledger_query` 返回的 `stName` | 厂站名 |
@@ -99,11 +181,44 @@ python skills/protection-risk-assessment/scripts/run_risk_assessment.py \
 | `protection_type` | `ledger_query` 返回的 `protectType` | 保护类型 |
 | `set` | `ledger_query` 返回的 `protectCover` | 套别（1/2） |
 | `model` | `ledger_query` 返回的 `protectModel` | 保护型号 |
-| `settings[].current_value` | `bx_setting` 返回的 `currentValue` | 当前定值 |
+
+#### 运行状态 (real_time_status)
+| 离线 JSON 字段 | 在线工具返回字段 | 说明 |
+|---|---|---|
+| `check_status` | `status_query` 返回的 `checkStatus` | 校核状态（正常/异常/参数异常） |
+| `oss_status` | `status_query` 返回的 `ossStatus` | 设备状态（运行中/检修中） |
+| `ied_status` | `status_query` 返回的 `iedStatus` | 通信状态（正常/断开） |
+| 主保护/后备/重合闸 | `status_query` 返回的 `status1~13` | 保护投入/退出状态 |
+
+#### 定值 (real_time_values)
+| 离线 JSON 字段 | 在线工具返回字段 | 说明 |
+|---|---|---|
+| `settings[].current_value` | `bx_setting` 返回的 `value` | 当前定值 |
+| `settings[].standard_value` | `bx_setting` 返回的 `stdvalue` | 标准值 |
+| `settings[].max_value` | `bx_setting` 返回的 `maxvalue` | 上限 |
+| `settings[].min_value` | `bx_setting` 返回的 `minvalue` | 下限 |
+
+#### 压板 (press_board)
+| 离线 JSON 字段 | 在线工具返回字段 | 说明 |
+|---|---|---|
+| `hard_press[].value` | `hard_press` 返回的 `value` | 硬压板状态 |
+| `soft_press[].value` | `soft_press` 返回的 `value` | 软压板状态 |
+| `analog[].value` | `analog` 返回的 `value` | 模拟量数值 |
+
+#### 告警 (alarms)
+| 离线 JSON 字段 | 在线工具返回字段 | 说明 |
+|---|---|---|
 | `alarm_priority` | `history` 返回的 `alarmLevel` | 告警级别 |
 | `status_name` | `history` 返回的 `alarmContent` | 告警内容 |
 | `value` (告警/复归) | `protect_alarm` 返回的 `value` | 1=动作，0=复归 |
 | `timestamp` | `history` 返回的 `soeTime` | 告警时间 |
+
+#### 检修 (maintenance)
+| 离线 JSON 字段 | 在线工具返回字段 | 说明 |
+|---|---|---|
+| `start_time` | `maintenance` 返回的 `confirmBeginTime` | 检修开始时间 |
+| `end_time` | `maintenance` 返回的 `realEndTime` | 检修结束时间 |
+| `work_type` | `maintenance` 返回的 `declareWorkContent` | 工作内容描述 |
 
 设备名归一化规则（v2）：
 - 在线返回 `onceDeviceName` = "220kV崔挥2C55线路第一套保护PCS931A-G" → primary_device = "崔挥2C55线", set_index = 1
@@ -112,8 +227,33 @@ python skills/protection-risk-assessment/scripts/run_risk_assessment.py \
 
 ## 工作流程
 
+**在线模式（推荐使用 `risk_assessment_collect` 工具）**：
+
+```
+用户询问 → risk_assessment_collect(stName=厂站) → 六源自检 → 按台账归一 → 告警状态机 → 规则驱动层 → 检修过滤 → 健康度评分 → FAHP融合 → 间隔聚合 → 简报输出
+```
+
+**离线模式**（直接运行脚本）：
+
 ```dot
-digraph risk_flow {
+digraph risk_flow_offline {
+    rankdir=TB;
+    node [shape=box];
+    "用户自然语言询问" -> "意图解析\n(对象识别+时间窗)";
+    "意图解析" -> "加载 DataPackage\n(含检修清单)";
+    "加载 DataPackage" -> "按台账归一\n筛选间隔";
+    "按台账归一" -> "告警状态机\n(信号消除/频发抖动)";
+    "告警状态机" -> "规则驱动层\n合规研判";
+    "规则驱动层" -> "检修时段过滤";
+    "检修时段过滤" -> "智能诊断层\n健康度打分";
+    "智能诊断层" -> "风险融合层\nFAHP量化";
+    "风险融合层" -> "间隔级聚合\n(双套独立运行)";
+    "间隔级聚合" -> "结构化风险简报\n四级 + 活页追溯";
+}
+```
+
+```dot
+digraph risk_flow_offline {
     rankdir=TB;
     node [shape=box];
     "用户自然语言询问" -> "意图解析\n(对象识别+时间窗)";
@@ -180,6 +320,7 @@ digraph risk_flow {
 
 ## Common Mistakes
 
+- ❌ **只采集台账+告警就输出结论（最严重错误）** → 风险评估必须基于六源数据！缺少运行状态无法判断通讯/参数异常(B3/A3)；缺少定值无法检测漂移(E4)；缺少压板/模拟量无法检测不一致和越限(E1/E2/E3/D3)；缺少检修记录无法执行检修过滤和F1/F2规则。六源缺一不可，严禁在数据不全的情况下输出评估结果。
 - ❌ **把告警 JSON station_name 当评估目标** → 真实场景存在数据采集错标，必须以台账 station_name 为权威。
 - ❌ **简单 `value=告警` 即视为危急** → 必须看时序：
    - 告警→复归 → 已消除，不算
@@ -188,6 +329,8 @@ digraph risk_flow {
 - ❌ **按单套装置输出** → 应按间隔聚合；同间隔双套失守是更危险信号。
 - ❌ **把"参数异常"与"装置故障"混为一谈** → 实时状态 `check_status=参数异常` 是参数无法读取，离线告警，需结合告警记录交叉确认。
 - ❌ **风险等级跳跃式赋值** → 必须经过 FAHP 综合分映射。
+- ❌ **跳过 status_query 只查台账/告警** → 缺少校核状态、OSS状态等运行状态数据，B3/A3 规则将完全失效。
+- ❌ **告警查询不限制时间窗口** → history 必须传入 starttime/endtime（今日窗口），否则告警状态机无法区分"今日持续"与"历史已复归"。
 
 ## 相关技能（按需调用）
 

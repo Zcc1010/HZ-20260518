@@ -35,7 +35,7 @@ export default function SmartToolPage<T extends { id: string }>({
   return (
     <div className={cn(
       "flex min-h-0",
-      isMobile ? "flex-1 flex-col" : "h-full gap-4 p-5"
+      isMobile ? "flex-1 flex-col" : "h-full gap-4"
     )}>
       {/* Left Panel - Job List */}
       {showSidebar && <aside

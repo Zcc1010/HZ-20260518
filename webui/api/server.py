@@ -78,9 +78,11 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
         mcp,
         openai_proxy,
         providers,
+        risk_assessment,
         sessions,
         setting_check,
         setting_check_v2,
+        setting_parser,
         skills,
         users,
         wave_record_parser,
@@ -100,6 +102,8 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
     app.include_router(setting_check.router, prefix="/api/setting-check", tags=["setting-check"])
     app.include_router(setting_check_v2.router, prefix="/api/setting-check-v2", tags=["setting-check-v2"])
     app.include_router(fault_analysis.router, prefix="/api/fault-analysis", tags=["fault-analysis"])
+    app.include_router(setting_parser.router, prefix="/api/setting-parser", tags=["setting-parser"])
+    app.include_router(risk_assessment.router, prefix="/api/risk-assessment", tags=["risk-assessment"])
     app.include_router(cron.router, prefix="/api/cron", tags=["cron"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
     app.include_router(users.router, prefix="/api/users", tags=["users"])

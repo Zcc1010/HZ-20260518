@@ -13,10 +13,13 @@ import { MessageSquare, BrainCircuit } from "lucide-react";
 interface ChatWindowProps {
   urlSessionKey?: string;
   isLoading?: boolean;
+  moduleTitle?: string;
+  moduleIcon?: React.ElementType;
 }
 
-export function ChatWindow({ urlSessionKey, isLoading }: ChatWindowProps = {}) {
+export function ChatWindow({ urlSessionKey, isLoading, moduleTitle, moduleIcon }: ChatWindowProps = {}) {
   const { t } = useTranslation();
+  const ModuleIcon = moduleIcon;
   const qc = useQueryClient();
   const {
     currentSessionKey,
@@ -314,12 +317,12 @@ export function ChatWindow({ urlSessionKey, isLoading }: ChatWindowProps = {}) {
                   <span>可以尝试这样问我</span>
                 </div>
                 <div className="space-y-2">
-                  <p className="brand-display brand-gradient-text text-3xl leading-none">{BRAND_NAME}</p>
+                  <p className="brand-display brand-gradient-text text-3xl leading-none">{moduleTitle || BRAND_NAME}</p>
                   <p className="max-w-md text-sm leading-7 text-slate-600">{t("chat.noMessages")}</p>
                 </div>
               </div>
               <div className="flex h-24 w-24 items-center justify-center rounded-[24px] bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-lg">
-                <BrainCircuit className="h-14 w-14 text-white" />
+                {ModuleIcon ? <ModuleIcon className="h-14 w-14 text-white" /> : <BrainCircuit className="h-14 w-14 text-white" />}
               </div>
             </div>
             <div className="mt-8 rounded-[24px] bg-white/90 px-5 py-4 shadow-sm">
@@ -328,7 +331,7 @@ export function ChatWindow({ urlSessionKey, isLoading }: ChatWindowProps = {}) {
                   <MessageSquare className="h-4 w-4 text-white" />
                 </div>
                 <div>
-                  <p className="brand-display text-base text-[#0d5d57]">{BRAND_NAME}</p>
+                  <p className="brand-display text-base text-[#0d5d57]">{moduleTitle || BRAND_NAME}</p>
                 </div>
               </div>
             </div>

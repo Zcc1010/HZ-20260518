@@ -4,7 +4,6 @@ import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileAr
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
-import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { cn } from "../../../lib/utils";
 import { withBasePath } from "../../../lib/basePath";
@@ -265,7 +264,6 @@ export function FaultAnalysisWorkspace({ selectedJob }: FaultAnalysisWorkspacePr
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h3 className="text-lg font-semibold text-[#0d5d57]">{getDeviceName(selectedJob)}</h3>
-                    <p className="text-sm text-[#555] mt-1">{selectedJob.device_type} · {selectedJob.voltage_level}</p>
                     <p className="text-sm text-[#888] mt-1">创建时间: {formatDateTime(selectedJob.created_at)}</p>
                   </div>
                   <Badge className={cn("rounded-full px-3 py-1 font-medium", statusBadgeClass(selectedJob.status))}>
@@ -416,8 +414,6 @@ export function FaultAnalysisWorkspace({ selectedJob }: FaultAnalysisWorkspacePr
                         onChange={toggleSelectAll} className="h-4 w-4 accent-[#298c88] cursor-pointer" />
                     </th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec]">厂站/设备</th>
-                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">设备类型</th>
-                    <th className="px-5 py-4 text-left font-medium text-[#dcecec]">电压等级</th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec] w-[140px]">状态</th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec] w-[180px]">创建时间</th>
                     <th className="px-5 py-4 text-left font-medium text-[#dcecec]">评价</th>
@@ -426,7 +422,7 @@ export function FaultAnalysisWorkspace({ selectedJob }: FaultAnalysisWorkspacePr
                 </thead>
                 <tbody>
                   {paginatedJobs.length === 0 ? (
-                    <tr><td className="px-5 py-10 text-sm text-[#888] text-center" colSpan={8}>{nameFilter ? "没有匹配的任务" : "暂无任务"}</td></tr>
+                    <tr><td className="px-5 py-10 text-sm text-[#888] text-center" colSpan={6}>{nameFilter ? "没有匹配的任务" : "暂无任务"}</td></tr>
                   ) : (
                     paginatedJobs.map((job) => {
                       const selectable = job.status === "completed" && !!job.download_url;
@@ -437,9 +433,7 @@ export function FaultAnalysisWorkspace({ selectedJob }: FaultAnalysisWorkspacePr
                               <input type="checkbox" checked={selectedIds.has(job.id)} onChange={() => toggleSelect(job.id)} className="h-4 w-4 accent-[#298c88] cursor-pointer" />
                             ) : (<span className="inline-block h-4 w-4" />)}
                           </td>
-                          <td className="px-5 py-4 text-[#555]"><span className="truncate max-w-[200px] block" title={getDeviceName(job)}>{getDeviceName(job)}</span></td>
-                          <td className="px-5 py-4 text-[#555]">{job.device_type || "-"}</td>
-                          <td className="px-5 py-4 text-[#555]">{job.voltage_level || "-"}</td>
+                          <td className="px-5 py-4 text-[#555]"><span className="truncate max-w-[400px] block" title={getDeviceName(job)}>{getDeviceName(job)}</span></td>
                           <td className="px-5 py-4 w-[140px]">
                             <div className="flex flex-col gap-2">
                               <Badge className={cn("rounded-full px-2.5 py-1 font-medium w-fit", statusBadgeClass(job.status))}>
@@ -578,31 +572,19 @@ interface CreateFaultAnalysisDialogProps {
 function CreateFaultAnalysisDialog({ open, onOpenChange, onSuccess }: CreateFaultAnalysisDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
-  const [station, setStation] = useState("");
-  const [device, setDevice] = useState("");
-  const [deviceType, setDeviceType] = useState("线路");
-  const [voltageLevel, setVoltageLevel] = useState("110kV");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!station.trim()) { setError("请输入厂站名称"); return; }
-    if (!device.trim()) { setError("请输入设备名称"); return; }
-    if (files.length === 0) { setError("请选择录波文件"); return; }
+  const handleSubmit = async () => {
+    if (files.length === 0) { setError("请选择录波压缩包"); return; }
 
     setSubmitting(true);
     setError(null);
-    setUploadProgress(0);
 
     try {
       const formData = new FormData();
       files.forEach((f) => formData.append("files", f));
-      formData.append("station", station.trim());
-      formData.append("device", device.trim());
-      formData.append("device_type", deviceType);
-      formData.append("voltage_level", voltageLevel);
 
       const res = await fetch(withBasePath("/api/fault-analysis/jobs"), { method: "POST", body: formData });
       if (!res.ok) {
@@ -613,8 +595,6 @@ function CreateFaultAnalysisDialog({ open, onOpenChange, onSuccess }: CreateFaul
       onSuccess(job);
       onOpenChange(false);
       setFiles([]);
-      setStation("");
-      setDevice("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -628,89 +608,78 @@ function CreateFaultAnalysisDialog({ open, onOpenChange, onSuccess }: CreateFaul
     setError(null);
   };
 
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = Array.from(e.dataTransfer.files).filter((f) =>
+      /\.(zip|rar|7z|zwav)$/i.test(f.name)
+    );
+    if (dropped.length > 0) {
+      setFiles(dropped);
+      setError(null);
+    }
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-xl">
+      <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="brand-display text-[#000]">新建故障分析</DialogTitle>
-          <DialogDescription className="leading-6 text-[#666]">上传录波文件，自动解析并生成故障分析报告</DialogDescription>
+          <DialogDescription className="leading-6 text-[#666]">
+            上传录波压缩包，系统将自动解析厂站、设备等信息并生成故障分析报告
+          </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="station" className="text-[#298c88]">厂站名称 <span className="text-red-500">*</span></Label>
-              <Input id="station" value={station} onChange={(e) => setStation(e.target.value)} placeholder="如：红石变" className="bg-[#f0f7fa] border-[#84aca9] text-[#000]" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="device" className="text-[#298c88]">设备名称 <span className="text-red-500">*</span></Label>
-              <Input id="device" value={device} onChange={(e) => setDevice(e.target.value)} placeholder="如：红马2C51线" className="bg-[#f0f7fa] border-[#84aca9] text-[#000]" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-[#298c88]">设备类型</Label>
-              <select value={deviceType} onChange={(e) => setDeviceType(e.target.value)}
-                className="w-full h-10 rounded-lg border border-[#84aca9] bg-[#f0f7fa] px-3 text-sm text-[#000]">
-                <option value="线路">线路</option>
-                <option value="主变">主变</option>
-                <option value="母差">母差</option>
-                <option value="开关保护">开关保护</option>
-                <option value="配电设备">配电设备</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[#298c88]">电压等级</Label>
-              <select value={voltageLevel} onChange={(e) => setVoltageLevel(e.target.value)}
-                className="w-full h-10 rounded-lg border border-[#84aca9] bg-[#f0f7fa] px-3 text-sm text-[#000]">
-                <option value="500kV">500kV</option>
-                <option value="220kV">220kV</option>
-                <option value="110kV">110kV</option>
-                <option value="66kV">66kV</option>
-                <option value="35kV">35kV</option>
-                <option value="10kV">10kV</option>
-              </select>
+        <div className="space-y-4">
+          {/* Drop zone */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={cn(
+              "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-8 cursor-pointer transition-colors",
+              dragOver ? "border-[#298c88] bg-[#f0f7fa]" : "border-[#d0d0d0] bg-[#fafafa] hover:border-[#298c88] hover:bg-[#f0f7fa]",
+            )}
+          >
+            <input ref={fileInputRef} type="file" multiple accept=".zip,.rar,.7z,.zwav" className="hidden" onChange={handleFileChange} />
+            <FileArchive className={cn("h-10 w-10", dragOver ? "text-[#298c88]" : "text-[#aaa]")} />
+            <div className="text-center">
+              <p className="text-sm font-medium text-[#333]">点击或拖拽压缩包到此处</p>
+              <p className="text-xs text-[#888] mt-1">支持 .zip / .rar / .7z / .zwav 格式</p>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-[#298c88]">录波文件 <span className="text-red-500">*</span></Label>
-            <div className="flex items-center gap-3">
-              <input ref={fileInputRef} type="file" multiple accept=".zip,.rar,.7z,.cfg,.dat,.hdr,.zwav" className="hidden" onChange={handleFileChange} />
-              <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} className="border-[#84aca9] bg-[#f0f7fa] text-[#000] hover:bg-[#e0f0f0]">
-                <Plus className="h-4 w-4 mr-1.5" /> 选择文件
-              </Button>
-              {files.length > 0 ? (
-                <span className="text-sm text-[#555]">{files.length} 个文件 ({(files.reduce((a, f) => a + f.size, 0) / 1024).toFixed(1)} KB)</span>
-              ) : (
-                <span className="text-sm text-[#888]">支持 zip/rar/7z 或单个 cfg/dat/hdr 文件</span>
-              )}
+          {/* Selected files */}
+          {files.length > 0 && (
+            <div className="space-y-1.5">
+              {files.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg bg-[#f0f7fa] px-3 py-2">
+                  <FileArchive className="h-4 w-4 text-[#298c88] shrink-0" />
+                  <span className="text-sm text-[#333] truncate flex-1">{f.name}</span>
+                  <span className="text-xs text-[#888] shrink-0">{formatSize(f.size)}</span>
+                </div>
+              ))}
             </div>
-          </div>
+          )}
 
           {error && (
             <div className="rounded-md border border-red-300 bg-[#f5d5d5]/50 p-3 text-sm text-[#cc3333]">{error}</div>
           )}
+        </div>
 
-          {submitting && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs text-[#666]">
-                <span>上传中...</span><span>{uploadProgress}%</span>
-              </div>
-              <div className="h-2 bg-[#e8f0f0] rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-[#298c88] to-[#00706b] transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting} className="border-[#e0e0e0] bg-white text-[#000] hover:bg-[#f5f5f5]">取消</Button>
-            <Button type="submit" disabled={submitting} className="bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]">
-              {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> 分析中...</> : "开始分析"}
-            </Button>
-          </DialogFooter>
-        </form>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting} className="border-[#e0e0e0] bg-white text-[#000] hover:bg-[#f5f5f5]">取消</Button>
+          <Button onClick={handleSubmit} disabled={submitting || files.length === 0} className="bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]">
+            {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> 分析中...</> : "开始分析"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

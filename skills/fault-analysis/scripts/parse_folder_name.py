@@ -215,11 +215,7 @@ def _guess_type(name: str) -> str | None:
 
 
 def _extract_station_from_name(name: str, device_type: str | None) -> str | None:
-    """设备文件夹名本身含厂站特征词（变/站/厂/工区）时的回退提取。
-    仅对线路/开关类启用，避免主变/配电/母差的设备名被误当厂站。"""
-    dt = device_type or _guess_type(name)
-    if dt not in ("line", "breaker"):
-        return None
+    """设备文件夹名本身含厂站特征词（变/站/厂/工区）时的回退提取。"""
     m = STATION_RE.search(name)
     if not m:
         return None

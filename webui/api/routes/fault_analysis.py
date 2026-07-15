@@ -8,6 +8,7 @@ import uuid
 import zipfile
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -73,10 +74,10 @@ async def list_fault_analysis_jobs(
 async def create_fault_analysis_job(
     svc: Annotated[ServiceContainer, Depends(get_services)],
     files: list[UploadFile] = File(...),
-    station: str = Form(...),
-    device: str = Form(...),
-    device_type: str = Form("线路"),
-    voltage_level: str = Form("110kV"),
+    station: str = Form(""),
+    device: str = Form(""),
+    device_type: str = Form(""),
+    voltage_level: str = Form(""),
 ) -> FaultAnalysisJobInfo:
     ensure_agentplayground_enabled()
     service = get_fault_analysis_service(svc)
@@ -169,10 +170,13 @@ async def download_fault_analysis_report(
         with open(file_path, "rb") as f:
             yield from f
 
+    encoded_name = quote(file_path.name)
     return StreamingResponse(
         iter_file(),
         media_type="text/markdown",
-        headers={"Content-Disposition": f"attachment; filename={file_path.name}"},
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}",
+        },
     )
 
 

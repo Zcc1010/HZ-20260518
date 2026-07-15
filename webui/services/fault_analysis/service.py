@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import mimetypes
 import shutil
 import uuid
 import zipfile
 import io
-from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from fastapi import UploadFile
 
@@ -123,35 +119,80 @@ class FaultAnalysisService:
 
         return self.get_job(job_id)
 
+    def _resolve_skill_dir(self, skill_name: str) -> Path:
+        """查找 skills 目录，兼容开发环境和 pip 安装部署。"""
+        import os
+        candidates = [
+            # 环境变量显式指定
+            Path(os.environ.get("NANOBOT_SKILLS_DIR", "")) / skill_name if os.environ.get("NANOBOT_SKILLS_DIR") else None,
+            # 开发环境：相对于本文件向上 4 级到项目根
+            Path(__file__).parent.parent.parent.parent / "skills" / skill_name,
+            # 部署环境：nanobot workspace 下的 skills
+            self.app_root.parent.parent / "skills" / skill_name,
+            # 部署环境：项目根目录（pip install -e 或 git clone 场景）
+            Path.cwd() / "skills" / skill_name,
+        ]
+        for d in candidates:
+            if d and d.is_dir():
+                return d
+        raise FileNotFoundError(
+            f"找不到 skills/{skill_name} 目录。"
+            f"请设置环境变量 NANOBOT_SKILLS_DIR 指向 skills 目录的父目录，"
+            f"或确认 skills/{skill_name} 已部署到以下位置之一: "
+            + ", ".join(str(c) for c in candidates if c)
+        )
+
     async def _run_analysis(self, job_id: str, input_dir: Path, device_type: str, voltage_level: str):
-        """后台运行故障分析: extract → parse → rms → LLM 生成报告"""
+        """后台运行故障分析：9步流水线（对齐客户子Agent架构）"""
         import subprocess
 
-        skill_dir = Path(__file__).parent.parent.parent.parent / "skills" / "fault-analysis"
+        skill_dir = self._resolve_skill_dir("fault-analysis")
         scripts_dir = skill_dir / "scripts"
+        refs_dir = skill_dir / "references"
         job_dir = input_dir.parent
         output_dir = job_dir / "output"
         output_dir.mkdir(exist_ok=True)
+        para_dir = output_dir / "段落"
+        para_dir.mkdir(exist_ok=True)
 
         def _run_script(cmd: list[str], timeout: int = 600) -> subprocess.CompletedProcess:
-            return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=str(skill_dir))
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=str(skill_dir), encoding="utf-8")
 
         try:
             # ── Step 1: 解压压缩包（支持嵌套：zip→zwav→cfg/dat/hdr）──
             self._update_progress(job_id, 5, "正在解压录波文件...")
             self._extract_all_archives(input_dir, output_dir)
 
-            # ── Step 2: 查找 CFG 文件 ──
-            self._update_progress(job_id, 20, "正在查找录波配置文件...")
+            # ── Step 0: 解析文件夹名 → device_metadata.json ──
+            self._update_progress(job_id, 8, "正在解析装置信息...")
+            device_metadata = self._run_parse_folder_name(scripts_dir, output_dir, job_dir)
+
+            # 从解析结果中回填 station/device/device_type/voltage_level
+            self._fill_metadata_from_parsed(job_id, device_metadata, device_type, voltage_level)
+            # 重新读取可能被更新的字段
+            job = self.get_job(job_id)
+            if job:
+                device_type = job.get("device_type") or device_type
+                voltage_level = job.get("voltage_level") or voltage_level
+
+            # ── Step 2: 查找 CFG 文件（去重）──
+            self._update_progress(job_id, 12, "正在查找录波配置文件...")
             cfg_files = list(output_dir.rglob("*.cfg")) + list(output_dir.rglob("*.CFG"))
             if not cfg_files:
-                # 也搜索 input 目录（可能没压缩包，直接上传的 cfg/dat）
                 cfg_files = list(input_dir.rglob("*.cfg")) + list(input_dir.rglob("*.CFG"))
+            # 去重：同一文件名只保留一个
+            seen_stems: set[str] = set()
+            unique_cfgs: list[Path] = []
+            for cfg in cfg_files:
+                if cfg.name not in seen_stems:
+                    seen_stems.add(cfg.name)
+                    unique_cfgs.append(cfg)
+            cfg_files = unique_cfgs
             if not cfg_files:
                 raise RuntimeError("未找到 .cfg 配置文件，请确认上传了 COMTRADE 格式的录波文件（.cfg + .dat + .hdr）")
 
             # ── Step 3: DAT → CSV ──
-            self._update_progress(job_id, 30, f"正在解析 {len(cfg_files)} 个录波文件...")
+            self._update_progress(job_id, 18, f"正在解析 {len(cfg_files)} 个录波文件...")
             parse_script = scripts_dir / "parse_dat_to_csv.py"
             csv_dir = output_dir / "csv"
             csv_dir.mkdir(exist_ok=True)
@@ -164,8 +205,14 @@ class FaultAnalysisService:
             if not csv_files:
                 raise RuntimeError("DAT 解析后未生成 CSV 文件")
 
+            # calculate_rms.py 期望 CFG 文件与 CSV 在同一目录
+            for cfg in cfg_files:
+                dest = csv_dir / cfg.name
+                if not dest.exists():
+                    shutil.copy2(cfg, dest)
+
             # ── Step 4: 计算 RMS 统计 ──
-            self._update_progress(job_id, 50, "正在计算 RMS 统计和事件...")
+            self._update_progress(job_id, 28, "正在计算 RMS 统计和事件...")
             rms_script = scripts_dir / "calculate_rms.py"
             rms_dir = output_dir / "rms"
             rms_dir.mkdir(exist_ok=True)
@@ -174,13 +221,32 @@ class FaultAnalysisService:
             if r.returncode != 0:
                 print(f"[fault-analysis] RMS 计算警告: {r.stderr}", flush=True)
 
-            # ── Step 5: 收集分析数据 ──
-            self._update_progress(job_id, 65, "正在收集分析数据...")
-            analysis_data = self._collect_analysis_data(input_dir, output_dir, cfg_files, device_type, voltage_level)
+            # ── Step 5: 故障发展分析 ──
+            self._update_progress(job_id, 35, "正在分析故障发展过程...")
+            self._run_fault_development(scripts_dir, csv_files, output_dir)
 
-            # ── Step 6: LLM 生成报告 ──
-            self._update_progress(job_id, 75, "正在调用 AI 生成分析报告...")
-            report_md = await self._generate_report_with_llm(analysis_data)
+            # ── Step 6: 子Agent段落生成 ──
+            self._update_progress(job_id, 40, "正在生成装置分析段落...")
+            llm_client = self._get_llm_client()
+            paragraphs = await self._generate_device_paragraphs(
+                llm_client, cfg_files, output_dir, input_dir, para_dir,
+                refs_dir, device_type, voltage_level, device_metadata, job_id,
+            )
+
+            # ── Step 6.5: 跨装置时序对齐 ──
+            self._update_progress(job_id, 70, "正在对齐多装置时序...")
+            self._run_cross_device_alignment(scripts_dir, output_dir, rms_dir)
+
+            # ── Step 7: 管线校验 ──
+            self._update_progress(job_id, 75, "正在校验分析完整性...")
+            self._run_check_pipeline(scripts_dir, output_dir, para_dir)
+
+            # ── Step 8: 主Agent组装最终报告 ──
+            self._update_progress(job_id, 80, "正在调用 AI 组装最终报告...")
+            report_md = await self._compose_final_report(
+                llm_client, paragraphs, output_dir, refs_dir,
+                device_type, voltage_level, device_metadata,
+            )
 
             # 保存报告
             report_path = job_dir / "故障分析报告.md"
@@ -209,127 +275,41 @@ class FaultAnalysisService:
                     (str(e), utcnow_iso(), job_id),
                 )
 
-    def _collect_analysis_data(
-        self, input_dir: Path, output_dir: Path, cfg_files: list[Path],
-        device_type: str, voltage_level: str,
-    ) -> dict:
-        """收集所有分析数据，用于构造 LLM prompt。"""
-        data: dict[str, Any] = {
-            "device_type": device_type,
-            "voltage_level": voltage_level,
-            "devices": [],
-        }
+    # ──────────────────────────────────────────────────────────────
+    # 流水线各步骤方法
+    # ──────────────────────────────────────────────────────────────
 
-        # 解析每个 CFG 对应的 HDR 和 RMS 数据
-        for cfg_path in cfg_files:
-            device_data: dict[str, Any] = {"cfg_path": str(cfg_path)}
-
-            # 读取 CFG 基本信息
-            try:
-                lines = cfg_path.read_text(encoding="gb18030", errors="replace").splitlines()
-                if lines:
-                    parts = lines[0].strip().split(",")
-                    device_data["station_name"] = parts[0].strip() if len(parts) > 0 else ""
-                    device_data["device_name"] = parts[1].strip() if len(parts) > 1 else ""
-                if len(lines) > 1:
-                    second = lines[1].strip().split(",")
-                    if len(second) >= 2:
-                        device_data["analog_channels"] = second[1].strip().rstrip("Aa")
-            except Exception:
-                pass
-
-            # 查找对应的 HDR 文件
-            hdr_candidates = list(cfg_path.parent.glob("*.hdr")) + list(cfg_path.parent.glob("*.HDR"))
-            if hdr_candidates:
-                device_data["hdr_path"] = str(hdr_candidates[0])
-                try:
-                    import xml.etree.ElementTree as ET
-                    tree = ET.parse(str(hdr_candidates[0]))
-                    root = tree.getroot()
-                    hdr_info: dict[str, str] = {}
-                    for elem in root.findall("DeviceInfo"):
-                        name_e = elem.find("name")
-                        val_e = elem.find("value")
-                        if name_e is not None and val_e is not None and name_e.text and val_e.text:
-                            hdr_info[name_e.text] = val_e.text
-                    for elem in root.findall("FaultInfo"):
-                        name_e = elem.find("name")
-                        val_e = elem.find("value")
-                        if name_e is not None and val_e is not None and name_e.text and val_e.text:
-                            hdr_info[name_e.text] = val_e.text
-                    device_data["hdr_info"] = hdr_info
-                except Exception:
-                    pass
-
-            # 查找对应的 RMS 结果
-            device_stem = cfg_path.stem
-            rms_csv = output_dir / "rms" / f"{device_stem}_rms.csv"
-            if rms_csv.exists():
-                try:
-                    rms_text = rms_csv.read_text(encoding="utf-8", errors="replace")
-                    # 只取前 200 行避免 prompt 过长
-                    rms_lines = rms_text.splitlines()[:200]
-                    device_data["rms_csv"] = "\n".join(rms_lines)
-                except Exception:
-                    pass
-
-            # 查找 events 文件
-            events_csv = output_dir / "rms" / f"{device_stem}_events.csv"
-            if events_csv.exists():
-                try:
-                    events_text = events_csv.read_text(encoding="utf-8", errors="replace")
-                    events_lines = events_text.splitlines()[:100]
-                    device_data["events_csv"] = "\n".join(events_lines)
-                except Exception:
-                    pass
-
-            data["devices"].append(device_data)
-
-        # 读取模板和规则（如果有）
-        refs_dir = skill_dir = Path(__file__).parent.parent.parent.parent / "skills" / "fault-analysis" / "references"
-        template_map = {
-            "线路": "线路跳闸简报模板.md",
-            "主变": "主变跳闸简报模板.md",
-            "母差": "母差跳闸简报模板.md",
-            "开关保护": "开关保护跳闸简报模板.md",
-            "配电设备": "配电设备跳闸简报模板.md",
-        }
-        template_file = refs_dir / template_map.get(device_type, "线路跳闸简报模板.md")
-        if template_file.exists():
-            try:
-                data["template"] = template_file.read_text(encoding="utf-8")[:8000]
-            except Exception:
-                pass
-
-        return data
-
-    async def _generate_report_with_llm(self, analysis_data: dict) -> str:
-        """调用 LLM 生成故障分析报告。"""
+    def _get_llm_client(self):
+        """获取 LLM 客户端（优先 Claude settings → nanobot config）。"""
         import json as _json
+        from webui.trip_briefing.llm.client import LLMClient
 
-        # 读取配置
-        config_path = Path.home() / ".protection" / "config.json"
-        if not config_path.exists():
-            config_path = Path.home() / ".nanobot" / "config.json"
-        if not config_path.exists():
-            raise FileNotFoundError("缺少配置文件 config.json，无法调用 LLM")
-
-        config_data = _json.loads(config_path.read_text(encoding="utf-8"))
-        default_model = config_data.get("agents", {}).get("defaults", {}).get("model", "glm-4-flash")
-
-        providers = config_data.get("providers", {})
         provider = None
-        for name in ["zhipu", "dashscope", "deepseek", "openai", "openrouter"]:
-            p = providers.get(name, {})
-            if p.get("apiKey") or p.get("api_key"):
-                provider = {
-                    "base_url": p.get("apiBase") or p.get("base_url", ""),
-                    "api_key": p.get("apiKey") or p.get("api_key", ""),
-                    "model": p.get("model", default_model),
-                }
-                break
+        claude_settings = Path.home() / ".claude" / "settings.json"
+        if claude_settings.exists():
+            try:
+                settings = _json.loads(claude_settings.read_text(encoding="utf-8"))
+                env = settings.get("env", {})
+                base_url = env.get("ANTHROPIC_BASE_URL", "").replace("/anthropic", "/v1")
+                api_key = env.get("ANTHROPIC_AUTH_TOKEN", "")
+                model = env.get("ANTHROPIC_MODEL", "")
+                if base_url and api_key and model:
+                    provider = {"base_url": base_url, "api_key": api_key, "model": model}
+            except Exception:
+                pass
+
         if not provider:
-            for name, p in providers.items():
+            config_path = Path.home() / ".protection" / "config.json"
+            if not config_path.exists():
+                config_path = Path.home() / ".nanobot" / "config.json"
+            if not config_path.exists():
+                raise FileNotFoundError("缺少配置文件 config.json，无法调用 LLM")
+
+            config_data = _json.loads(config_path.read_text(encoding="utf-8"))
+            default_model = config_data.get("agents", {}).get("defaults", {}).get("model", "glm-4-flash")
+            providers = config_data.get("providers", {})
+            for name in ["zhipu", "dashscope", "deepseek", "openai", "openrouter"]:
+                p = providers.get(name, {})
                 if p.get("apiKey") or p.get("api_key"):
                     provider = {
                         "base_url": p.get("apiBase") or p.get("base_url", ""),
@@ -337,12 +317,20 @@ class FaultAnalysisService:
                         "model": p.get("model", default_model),
                     }
                     break
+            if not provider:
+                for name, p in providers.items():
+                    if p.get("apiKey") or p.get("api_key"):
+                        provider = {
+                            "base_url": p.get("apiBase") or p.get("base_url", ""),
+                            "api_key": p.get("apiKey") or p.get("api_key", ""),
+                            "model": p.get("model", default_model),
+                        }
+                        break
+
         if not provider or not provider.get("api_key"):
-            raise ValueError("配置文件中未找到有效的 LLM provider")
+            raise ValueError("未找到有效的 LLM provider（已检查 ~/.claude/settings.json 和 ~/.nanobot/config.json）")
 
-        from webui.trip_briefing.llm.client import LLMClient
-
-        llm_client = LLMClient(
+        return LLMClient(
             api_url=provider["base_url"],
             api_key=provider["api_key"],
             model=provider["model"],
@@ -350,53 +338,532 @@ class FaultAnalysisService:
             max_retries=3,
         )
 
-        # 构造 prompt
-        prompt_parts = [
-            "你是一位电力系统继电保护专家，请根据以下录波分析数据生成故障分析报告。",
-            f"\n设备类型: {analysis_data['device_type']}",
-            f"电压等级: {analysis_data['voltage_level']}",
-        ]
+    def _run_parse_folder_name(self, scripts_dir: Path, output_dir: Path, job_dir: Path) -> dict:
+        """Step 0: 解析文件夹名 → device_metadata.json"""
+        import subprocess
+        import json as _json
+        from loguru import logger
 
-        template = analysis_data.get("template")
-        if template:
-            prompt_parts.append(f"\n## 报告模板（请严格按此格式生成）:\n{template}")
+        script = scripts_dir / "parse_folder_name.py"
+        if not script.exists():
+            logger.warning("[fault-analysis] parse_folder_name.py 不存在: {}", script)
+            return {}
 
-        for i, device in enumerate(analysis_data.get("devices", []), 1):
-            prompt_parts.append(f"\n---\n## 装置 {i}: {device.get('device_name', '未知')}")
-            prompt_parts.append(f"厂站: {device.get('station_name', '未知')}")
+        # 收集 output_dir 中所有录波文件路径作为输入（排除 csv 目录中的文件）
+        input_paths = []
+        for ext in ["*.cfg", "*.CFG", "*.hdr", "*.HDR"]:
+            for f in output_dir.rglob(ext):
+                # 跳过 csv 子目录中的文件（这些是后续步骤生成的）
+                if f.parent.name == "csv":
+                    continue
+                input_paths.append(str(f))
+        if not input_paths:
+            logger.warning("[fault-analysis] output_dir 中未找到 cfg/hdr 文件: {}", output_dir)
+            return {}
 
-            hdr = device.get("hdr_info", {})
-            if hdr:
-                prompt_parts.append("\n### HDR 设备信息:")
-                for k, v in hdr.items():
-                    prompt_parts.append(f"- {k}: {v}")
+        logger.info("[fault-analysis] parse_folder_name 输入文件: {} 个", len(input_paths))
+        try:
+            r = subprocess.run(
+                ["python", str(script)] + input_paths + ["--json"],
+                capture_output=True, text=True, timeout=60, cwd=str(scripts_dir.parent), encoding="utf-8",
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                metadata = _json.loads(r.stdout.strip())
+                # 保存到 job_dir
+                meta_path = job_dir / "device_metadata.json"
+                meta_path.write_text(_json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+                logger.info("[fault-analysis] parse_folder_name 成功，解析 {} 个设备", len(metadata) if isinstance(metadata, list) else 1)
+                return metadata
+            else:
+                logger.error("[fault-analysis] parse_folder_name 失败: returncode={}, stderr={}", r.returncode, r.stderr[:500])
+        except Exception as e:
+            logger.error("[fault-analysis] parse_folder_name 异常: {}", e)
+        return {}
 
-            rms = device.get("rms_csv")
-            if rms:
-                prompt_parts.append(f"\n### RMS 统计数据:\n```csv\n{rms}\n```")
+    def _fill_metadata_from_parsed(self, job_id: str, metadata: dict, current_device_type: str, current_voltage_level: str):
+        """从 parse_folder_name 的解析结果回填 job 的 station/device/device_type/voltage_level。"""
+        from loguru import logger
 
-            events = device.get("events_csv")
+        if not metadata:
+            logger.warning("[fault-analysis] parse_folder_name 返回空结果，跳过元数据回填")
+            return
+
+        # metadata 可能是 list（多设备）或 dict（单设备）
+        items = metadata if isinstance(metadata, list) else [metadata]
+        if not items:
+            return
+
+        first = items[0]
+        station = first.get("station") or ""
+        device_name = first.get("device_name") or ""
+        device_type_cn = first.get("device_type_cn") or ""
+        voltage_kv = first.get("voltage_kv")
+
+        logger.info("[fault-analysis] parse_folder_name 结果: station={}, device_name={}, device_type_cn={}, voltage_kv={}",
+                     station, device_name, device_type_cn, voltage_kv)
+
+        # 映射 device_type_cn 到后端使用的简短类型
+        type_map = {
+            "线路保护": "线路",
+            "母差保护": "母差",
+            "主变保护": "主变",
+            "开关保护（断路器保护）": "开关保护",
+            "配电设备": "配电设备",
+        }
+        parsed_device_type = type_map.get(device_type_cn, "")
+        parsed_voltage = f"{voltage_kv}kV" if voltage_kv else ""
+
+        # 只在用户未指定时才回填
+        updates = {}
+        if not current_device_type and parsed_device_type:
+            updates["device_type"] = parsed_device_type
+        if not current_voltage_level and parsed_voltage:
+            updates["voltage_level"] = parsed_voltage
+
+        # station 和 device_name 总是从解析结果回填（因为前端不再要求用户填写）
+        if station:
+            updates["station"] = station
+        if device_name:
+            updates["device"] = device_name
+
+        if updates:
+            with self._conn() as conn:
+                set_clause = ", ".join(f"{k} = ?" for k in updates)
+                values = list(updates.values()) + [utcnow_iso(), job_id]
+                conn.execute(
+                    f"UPDATE jobs SET {set_clause}, updated_at = ? WHERE id = ?",
+                    values,
+                )
+            logger.info("[fault-analysis] 元数据已回填: {}", updates)
+        else:
+            logger.warning("[fault-analysis] 无可回填的元数据 (station={}, device_type={}, voltage={})",
+                          station, parsed_device_type, parsed_voltage)
+
+    def _run_fault_development(self, scripts_dir: Path, csv_files: list[Path], output_dir: Path):
+        """Step 5: 故障发展分析（calculate_fault_development.py）"""
+        import subprocess
+
+        script = scripts_dir / "calculate_fault_development.py"
+        if not script.exists():
+            print("[fault-analysis] calculate_fault_development.py 不存在，跳过", flush=True)
+            return
+
+        for csv_file in csv_files:
+            try:
+                r = subprocess.run(
+                    ["python", str(script), str(csv_file), "--output", str(output_dir)],
+                    capture_output=True, text=True, timeout=120, cwd=str(scripts_dir.parent), encoding="utf-8",
+                )
+                if r.returncode != 0:
+                    print(f"[fault-analysis] 故障发展分析警告 ({csv_file.name}): {r.stderr[:200]}", flush=True)
+            except Exception as e:
+                print(f"[fault-analysis] 故障发展分析异常 ({csv_file.name}): {e}", flush=True)
+
+    def _collect_device_data_for_subagent(
+        self, cfg_path: Path, output_dir: Path, input_dir: Path,
+    ) -> str:
+        """收集单个装置的所有数据，用于构造子Agent prompt。"""
+        sections = []
+        device_stem = cfg_path.stem
+
+        # 0. 文件路径上下文（厂站名、套别通常在 .zwav 文件名中）
+        # 向上查找包含中文的 .zwav 或文件夹名
+        context_parts = []
+        cur = cfg_path.parent
+        for _ in range(5):
+            if cur == output_dir or cur == cur.parent:
+                break
+            context_parts.append(cur.name)
+            cur = cur.parent
+        # 也查找同级 .zwav 文件
+        zwav_files = list(cfg_path.parent.glob("*.zwav")) + list(cfg_path.parent.glob("*.ZWAV"))
+        if context_parts or zwav_files:
+            ctx = "### 文件路径上下文\n"
+            if context_parts:
+                ctx += f"- 所在目录链: {' / '.join(reversed(context_parts))}\n"
+            if zwav_files:
+                ctx += f"- 关联 .zwav 文件: {', '.join(f.name for f in zwav_files)}\n"
+            ctx += f"- CFG 文件名: {cfg_path.name}\n"
+            ctx += f"- 装置标识(stem): {device_stem}\n"
+            sections.append(ctx)
+
+        # 1. HDR 信息
+        hdr_candidates = list(cfg_path.parent.glob("*.hdr")) + list(cfg_path.parent.glob("*.HDR"))
+        if hdr_candidates:
+            hdr_path = hdr_candidates[0]
+            try:
+                import xml.etree.ElementTree as ET
+                tree = ET.parse(str(hdr_path))
+                root = tree.getroot()
+                hdr_text = hdr_path.read_text(encoding="gb18030", errors="replace")
+                sections.append(f"### HDR 文件: {hdr_path.name}\n```xml\n{hdr_text[:10000]}\n```")
+            except Exception:
+                try:
+                    hdr_text = hdr_path.read_text(encoding="utf-8", errors="replace")
+                    sections.append(f"### HDR 文件: {hdr_path.name}\n```\n{hdr_text[:10000]}\n```")
+                except Exception:
+                    pass
+
+        # 2. Events CSV
+        events_csv = output_dir / "rms" / f"{device_stem}_events.csv"
+        if events_csv.exists():
+            try:
+                events_text = events_csv.read_text(encoding="utf-8", errors="replace")
+                sections.append(f"### Events 文件: {events_csv.name}\n```csv\n{events_text[:5000]}\n```")
+            except Exception:
+                pass
+
+        # 3. RMS CSV
+        rms_csv = output_dir / "rms" / f"{device_stem}_rms.csv"
+        if rms_csv.exists():
+            try:
+                rms_text = rms_csv.read_text(encoding="utf-8", errors="replace")
+                sections.append(f"### RMS 文件: {rms_csv.name}\n```csv\n{rms_text[:5000]}\n```")
+            except Exception:
+                pass
+
+        # 4. 故障发展数据 JSON
+        dev_json = output_dir / f"{device_stem}.development.json"
+        if dev_json.exists():
+            try:
+                dev_text = dev_json.read_text(encoding="utf-8")
+                sections.append(f"### 故障发展过程数据: {dev_json.name}\n```json\n{dev_text}\n```")
+            except Exception:
+                pass
+
+        return "\n\n".join(sections)
+
+    def _detect_device_type_from_metadata(self, device_metadata: dict, cfg_path: Path) -> str:
+        """从 device_metadata 或文件名推断设备类型。"""
+        # 从 metadata 推断
+        if isinstance(device_metadata, list):
+            for item in device_metadata:
+                if isinstance(item, dict):
+                    dtype = item.get("device_type", "")
+                    if "母差" in dtype or "母线" in dtype or dtype == "busbar":
+                        return "母差"
+                    elif "主变" in dtype or "变压器" in dtype or dtype == "transformer":
+                        return "主变"
+                    elif "开关" in dtype or "断路器" in dtype or dtype == "breaker":
+                        return "开关"
+                    elif "电容" in dtype or "电抗" in dtype or dtype == "distribution":
+                        return "配电"
+                    elif dtype == "line":
+                        return "线路"
+        elif isinstance(device_metadata, dict):
+            dtype = device_metadata.get("device_type", "")
+            if "母差" in dtype or "母线" in dtype:
+                return "母差"
+            elif "主变" in dtype or "变压器" in dtype:
+                return "主变"
+
+        # 从文件名推断
+        name_lower = cfg_path.stem.lower()
+        if "母差" in name_lower or "母线" in name_lower or "busbar" in name_lower:
+            return "母差"
+        elif "主变" in name_lower or "变压器" in name_lower:
+            return "主变"
+        elif "开关" in name_lower or "断路器" in name_lower:
+            return "开关"
+        elif "电容" in name_lower or "电抗" in name_lower:
+            return "配电"
+        return "线路"
+
+    async def _generate_device_paragraphs(
+        self,
+        llm_client,
+        cfg_files: list[Path],
+        output_dir: Path,
+        input_dir: Path,
+        para_dir: Path,
+        refs_dir: Path,
+        device_type: str,
+        voltage_level: str,
+        device_metadata: dict,
+        job_id: str = "",
+    ) -> dict[str, str]:
+        """Step 6: 对每个装置调用子Agent生成标准化段落。"""
+        subagent_template_map = {
+            "线路": "线路保护-prompt-template.md",
+            "主变": "主变保护-prompt-template.md",
+            "母差": "母差保护-prompt-template.md",
+            "开关": "开关保护-prompt-template.md",
+            "配电": "配电设备保护-prompt-template.md",
+        }
+
+        paragraphs: dict[str, str] = {}
+
+        for i, cfg_path in enumerate(cfg_files):
+            if job_id:
+                self._update_progress(job_id, 40 + i * 15,
+                                      f"正在分析装置 {i+1}/{len(cfg_files)}: {cfg_path.stem}...")
+            # 推断设备类型（每个装置可能不同）
+            dev_type = self._detect_device_type_from_metadata(device_metadata, cfg_path)
+            template_file = refs_dir / "subagent" / subagent_template_map.get(dev_type, "线路保护-prompt-template.md")
+
+            if not template_file.exists():
+                print(f"[fault-analysis] 子Agent模板不存在: {template_file.name}，使用线路模板", flush=True)
+                template_file = refs_dir / "subagent" / "线路保护-prompt-template.md"
+
+            prompt_template = template_file.read_text(encoding="utf-8")
+
+            # 收集该装置数据
+            device_data = self._collect_device_data_for_subagent(cfg_path, output_dir, input_dir)
+
+            # 构造 prompt
+            prompt = f"""{prompt_template}
+
+---
+
+## 输入数据
+
+以下是本套装置的录波分析数据，请严格按照上述模板格式提取信息并生成标准化段落。
+
+{device_data}
+
+**电压等级**: {voltage_level}
+**设备类型**: {dev_type}
+"""
+
+            # 调用 LLM
+            try:
+                print(f"[fault-analysis] 子Agent LLM 调用开始: {cfg_path.stem}, prompt大小: {len(prompt)} chars", flush=True)
+                response = await asyncio.to_thread(
+                    llm_client.chat_completion,
+                    messages=[{"role": "user", "content": prompt}],
+                    model=llm_client.model,
+                    max_tokens=8192,
+                )
+                if response.success:
+                    paragraph = response.content
+                    # 清理 code fence
+                    if paragraph.startswith("```"):
+                        lines = paragraph.split("\n")
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines and lines[-1].strip() == "```":
+                            lines = lines[:-1]
+                        paragraph = "\n".join(lines)
+
+                    # 保存段落文件
+                    para_name = f"{cfg_path.stem}.md"
+                    para_path = para_dir / para_name
+                    para_path.write_text(paragraph, encoding="utf-8")
+                    paragraphs[para_name] = paragraph
+                    print(f"[fault-analysis] 子Agent段落已生成: {para_name}", flush=True)
+                else:
+                    print(f"[fault-analysis] 子Agent调用失败 ({cfg_path.name}): {response.error_message}", flush=True)
+            except Exception as e:
+                print(f"[fault-analysis] 子Agent异常 ({cfg_path.name}): {e}", flush=True)
+
+        return paragraphs
+
+    def _run_cross_device_alignment(self, scripts_dir: Path, output_dir: Path, rms_dir: Path):
+        """Step 6.5: 跨装置时序对齐。"""
+        import subprocess
+        import json as _json
+
+        # 收集所有 events.csv
+        events_csvs = list(rms_dir.glob("*_events.csv")) + list(rms_dir.glob("*_Events.csv"))
+        if len(events_csvs) < 2:
+            print("[fault-analysis] 装置数 < 2，跳过跨装置对齐", flush=True)
+            return
+
+        # 生成 align_cross_device 所需的 JSON 输入
+        events_by_device: dict[str, list] = {}
+        for ecsv in events_csvs:
+            device_name = ecsv.stem.replace("_events", "").replace("_Events", "")
+            events = []
+            try:
+                lines = ecsv.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+                if len(lines) < 2:
+                    continue
+                for line in lines[1:]:
+                    parts = line.split(",")
+                    if len(parts) >= 3:
+                        time_str = parts[0].strip()
+                        channel = parts[1].strip()
+                        content = parts[2].strip()
+                        delta = 1 if "动作" in content else (-1 if "返回" in content else 0)
+                        events.append({
+                            "time": time_str,
+                            "channel": channel,
+                            "value": content,
+                            "delta": delta,
+                        })
+            except Exception as e:
+                print(f"[fault-analysis] 解析 events 失败 ({ecsv.name}): {e}", flush=True)
             if events:
-                prompt_parts.append(f"\n### 事件记录:\n```csv\n{events}\n```")
+                events_by_device[device_name] = events
 
-        prompt_parts.append(
-            "\n\n请根据以上数据，按照模板格式生成完整的故障分析报告。"
-            "报告必须包含：故障概况、保护动作分析、故障测距、录波波形分析等章节。"
-            "对于无法确定的数据，请标注'[待核实]'。"
-        )
+        if len(events_by_device) < 2:
+            return
 
-        prompt = "\n".join(prompt_parts)
+        # 写入 JSON
+        events_json_path = output_dir / "align_events_input.json"
+        events_json_path.write_text(_json.dumps(events_by_device, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        # 调用 LLM（在线程池中执行避免阻塞）
+        # 执行 align_cross_device.py
+        align_script = scripts_dir / "align_cross_device.py"
+        if align_script.exists():
+            try:
+                r = subprocess.run(
+                    ["python", str(align_script),
+                     "--events-json", str(events_json_path),
+                     "--ref-strategy", "earliest",
+                     "--output", str(output_dir / "aligned.json")],
+                    capture_output=True, text=True, timeout=60, cwd=str(scripts_dir.parent), encoding="utf-8",
+                )
+                if r.returncode != 0:
+                    print(f"[fault-analysis] 跨装置对齐警告: {r.stderr[:200]}", flush=True)
+            except Exception as e:
+                print(f"[fault-analysis] 跨装置对齐异常: {e}", flush=True)
+
+        # 执行 compare_devices.py
+        compare_script = scripts_dir / "compare_devices.py"
+        if compare_script.exists():
+            try:
+                r = subprocess.run(
+                    ["python", str(compare_script)] + [str(f) for f in events_csvs] +
+                    ["--output", str(output_dir / "多装置时序对比表.csv")],
+                    capture_output=True, text=True, timeout=60, cwd=str(scripts_dir.parent), encoding="utf-8",
+                )
+                if r.returncode != 0:
+                    print(f"[fault-analysis] 时序对比表警告: {r.stderr[:200]}", flush=True)
+            except Exception as e:
+                print(f"[fault-analysis] 时序对比表异常: {e}", flush=True)
+
+    def _run_check_pipeline(self, scripts_dir: Path, output_dir: Path, para_dir: Path):
+        """Step 7: 管线校验。"""
+        import subprocess
+
+        script = scripts_dir / "check_pipeline.py"
+        if not script.exists():
+            return
+
+        # check_pipeline.py 检查 output_dir 下的 段落/ 目录
+        try:
+            r = subprocess.run(
+                ["python", str(script), str(output_dir)],
+                capture_output=True, text=True, timeout=30, cwd=str(scripts_dir.parent), encoding="utf-8",
+            )
+            if r.returncode != 0:
+                print(f"[fault-analysis] 管线校验警告:\n{r.stdout[:500]}", flush=True)
+            else:
+                print(f"[fault-analysis] 管线校验通过", flush=True)
+        except Exception as e:
+            print(f"[fault-analysis] 管线校验异常: {e}", flush=True)
+
+    async def _compose_final_report(
+        self,
+        llm_client,
+        paragraphs: dict[str, str],
+        output_dir: Path,
+        refs_dir: Path,
+        device_type: str,
+        voltage_level: str,
+        device_metadata: dict,
+    ) -> str:
+        """Step 8: 主Agent读取段落，组装最终报告。"""
+        # 读取报告模板（完整，不截断）
+        template_map = {
+            "线路": "线路跳闸简报模板.md",
+            "主变": "主变跳闸简报模板.md",
+            "母差": "母差跳闸简报模板.md",
+            "开关": "开关保护跳闸简报模板.md",
+            "配电": "配电设备跳闸简报模板.md",
+        }
+        report_template_path = refs_dir / template_map.get(device_type, "线路跳闸简报模板.md")
+        report_template = ""
+        if report_template_path.exists():
+            report_template = report_template_path.read_text(encoding="utf-8")
+
+        # 读取跨装置对齐数据
+        aligned_data = ""
+        aligned_json = output_dir / "aligned.json"
+        if aligned_json.exists():
+            try:
+                aligned_data = "### 跨装置时序对齐数据\n```json\n"
+                aligned_data += aligned_json.read_text(encoding="utf-8")[:5000]
+                aligned_data += "\n```\n"
+            except Exception:
+                pass
+
+        compare_csv = output_dir / "多装置时序对比表.csv"
+        if compare_csv.exists():
+            try:
+                aligned_data += "\n### 多装置时序对比表\n```csv\n"
+                aligned_data += compare_csv.read_text(encoding="utf-8")[:5000]
+                aligned_data += "\n```\n"
+            except Exception:
+                pass
+
+        # 组装段落内容
+        paragraphs_text = ""
+        for name, content in paragraphs.items():
+            paragraphs_text += f"\n\n---\n### 段落文件: {name}\n{content}"
+
+        # 构造完整 prompt — 主Agent只负责组装，不补充原始数据
+        prompt = f"""你是电网故障分析主Agent。你的任务是读取下方的子Agent段落文件，按照报告模板的**完整章节结构**组装最终跳闸简报。
+
+## 核心规则
+
+1. **必须按模板的章节顺序输出**，每个章节都不能省略。对于母差保护，完整章节顺序为：
+   - 一、故障基本情况
+   - 二、保护动作评价（含故障判定结论）
+   - 三、保护配置情况（含 3.1 装置信息表、3.2 各支路CT变比及运行母段、3.3 接线与母线运行方式）
+   - 四、故障发展和保护动作情况
+   - 五、动作时序表（含 5.1 时间对齐基准说明、5.2 动作时序表）
+   - 六、通道对应关系准确性分析（含 6.1 间隔通道映射验证、6.2 两套母差各支路电流一致性校验）
+   - 七、差流分析（含 7.1 大差与各段小差、7.2 各间隔电流详情）
+   - 八、保护动作评价（综合评价表 + 待核实问题列表）
+   - 九、故障录波评价
+   - 一次值换算规则
+   - 数据来源总表
+
+2. **数据来源**：只使用段落文件中提供的数据。段落中有的数据直接引用；段落中缺失的数据标注 `[无数据]` 或 `[待核实]`，**不要编造数据**。
+
+3. **标题格式**：报告标题必须包含厂站名称和具体母线名称，如"YYYY年M月DD日 [厂站名][母线名]跳闸简报"。
+
+4. **§二 保护动作评价（含故障判定结论）**：综合评价用一句话概括结论，引用段落中的保护动作评价结果。待核实问题从段落中提取。
+
+5. **§三.2 各支路CT变比及运行母段**：母差保护必填。从段落的定值信息中提取各支路CT变比，无法获取的标注 `[无数据]`。
+
+6. **§六 通道对应关系**：从段落中提取通道映射信息，无法获取的标注 `[无数据]`。
+
+7. **§七 差流分析**：从段落的FaultInfo中提取大差/小差数据，无法获取的标注 `[无数据]`。
+
+8. **§八 保护动作评价**：这是独立的详细评价章节（区别于§二的简要结论），包含综合评价表和待核实问题编号列表。
+
+## 报告模板（完整结构参考）
+
+{report_template}
+
+## 段落文件内容
+
+{paragraphs_text}
+
+## 跨装置对齐数据
+
+{aligned_data}
+
+## 补充信息
+
+- **设备类型**: {device_type}
+- **电压等级**: {voltage_level}
+
+请严格按照上述章节顺序生成完整的跳闸简报，不要省略任何章节。
+"""
+
         response = await asyncio.to_thread(
             llm_client.chat_completion,
             messages=[{"role": "user", "content": prompt}],
-            model=provider["model"],
-            max_tokens=8192,
+            model=llm_client.model,
+            max_tokens=16384,
         )
 
         if not response.success:
-            raise RuntimeError(f"LLM 调用失败: {response.error_message}")
+            raise RuntimeError(f"主Agent LLM 调用失败: {response.error_message}")
 
         report = response.content
         # 清理 code fence
@@ -452,7 +919,13 @@ class FaultAnalysisService:
                 processed.add(arc)
                 suffix = arc.suffix.lower()
                 try:
-                    if suffix in {'.zip', '.zwav'}:
+                    if suffix == '.zwav':
+                        # .zwav 解压到以文件名命名的子目录，保留设备文件夹结构
+                        # parse_folder_name.py 依赖文件夹名提取厂站/设备/电压等元数据
+                        device_dir = output_dir / arc.stem
+                        device_dir.mkdir(parents=True, exist_ok=True)
+                        _extract_zip(arc, device_dir)
+                    elif suffix == '.zip':
                         _extract_zip(arc, output_dir)
                     elif suffix == '.rar':
                         import subprocess

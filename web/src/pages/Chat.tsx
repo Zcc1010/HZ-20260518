@@ -14,11 +14,11 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { nanoid } from "nanoid";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { ArrowLeft, MessageSquare, Plus, Search, Trash2, FileText, ShieldAlert } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Search, Trash2, FileText, ShieldAlert, ClipboardCheck } from "lucide-react";
 import { cn, formatDate } from "../lib/utils";
 import { CHANNEL_ICONS } from "../lib/channelIcons";
 
-type ActiveModule = "chat" | "wave-record" | "setting-check" | "setting-parser" | "risk-assessment";
+type ActiveModule = "chat" | "wave-record" | "setting-check" | "setting-parser" | "risk-assessment" | "safety-ticket-review";
 
 /** Extract the channel prefix from a session key, e.g. "feishu", "telegram", "web" */
 function channelOf(key: string): string {
@@ -83,6 +83,7 @@ export default function Chat() {
     if (location.pathname === "/setting-check") return "setting-check";
     if (location.pathname === "/setting-parser") return "setting-parser";
     if (location.pathname === "/risk-assessment") return "risk-assessment";
+    if (location.pathname === "/safety-ticket-review") return "safety-ticket-review";
     return "chat";
   }, [location.pathname]);
 
@@ -119,7 +120,7 @@ export default function Chat() {
         setCurrentSession(chatSession);
         loadedKeyRef.current = chatSession;
       }
-    } else if (activeModule === "setting-parser" || activeModule === "risk-assessment") {
+    } else if (activeModule === "setting-parser" || activeModule === "risk-assessment" || activeModule === "safety-ticket-review") {
       // Check if this module already has a session
       let moduleSession = moduleSessionsRef.current[activeModule];
       if (!moduleSession) {
@@ -254,6 +255,7 @@ export default function Chat() {
       case "setting-check": return t("chat.settingCheck", "定值校核");
       case "setting-parser": return t("nav.settingParser", "定值单解析");
       case "risk-assessment": return t("nav.riskAssessment", "运行风险评估");
+      case "safety-ticket-review": return t("nav.safetyTicketReview", "安措票审查");
     }
   }, [activeModule, t]);
 
@@ -464,7 +466,7 @@ export default function Chat() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <span className="flex-1 truncate text-sm font-medium">
-              {(activeModule === "chat" || activeModule === "setting-parser" || activeModule === "risk-assessment")
+              {(activeModule === "chat" || activeModule === "setting-parser" || activeModule === "risk-assessment" || activeModule === "safety-ticket-review")
                 ? (currentSessionKey ? sessionDisplayLabel(currentSessionKey, undefined, t("chat.newChat")) : bPanelTitle)
                 : bPanelTitle
               }
@@ -474,12 +476,12 @@ export default function Chat() {
 
         {/* Content */}
         <div className="flex flex-col flex-1 overflow-hidden">
-          {(activeModule === "chat" || activeModule === "setting-parser" || activeModule === "risk-assessment") && (
+          {(activeModule === "chat" || activeModule === "setting-parser" || activeModule === "risk-assessment" || activeModule === "safety-ticket-review") && (
             <ChatWindow
               urlSessionKey={urlSessionKey}
               isLoading={!!currentSessionKey && !historyLoaded}
               moduleTitle={activeModule !== "chat" ? bPanelTitle : undefined}
-              moduleIcon={activeModule === "setting-parser" ? FileText : activeModule === "risk-assessment" ? ShieldAlert : undefined}
+              moduleIcon={activeModule === "setting-parser" ? FileText : activeModule === "risk-assessment" ? ShieldAlert : activeModule === "safety-ticket-review" ? ClipboardCheck : undefined}
             />
           )}
           {activeModule === "wave-record" && <WaveRecordWorkspace selectedJob={selectedWaveJob} />}

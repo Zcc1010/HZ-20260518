@@ -163,14 +163,14 @@ def _persist_attachments_to_session(container: Any, session_key: str, response: 
         from datetime import datetime
 
         session = container.agent.sessions.get_or_create(session_key)
+        # Find the last assistant message in this turn — it carries the
+        # agent's final text.  Attachments belong there so the user sees
+        # a single message with text + download link.
         target_message = None
         for message in reversed(getattr(session, "messages", [])):
-            if message.get("role") != "assistant":
-                continue
-            if response and message.get("content") != response:
-                continue
-            target_message = message
-            break
+            if message.get("role") == "assistant":
+                target_message = message
+                break
         if target_message is None:
             target_message = {
                 "role": "assistant",
@@ -178,6 +178,9 @@ def _persist_attachments_to_session(container: Any, session_key: str, response: 
                 "timestamp": datetime.now().isoformat(),
             }
             session.messages.append(target_message)
+        # Update content to include message-tool text (e.g. download hint)
+        if response:
+            target_message["content"] = response
         target_message["attachments"] = attachments
         session.updated_at = datetime.now()
         container.agent.sessions.save(session)
@@ -472,6 +475,10 @@ async def ws_chat(websocket: WebSocket) -> None:
                         captured_content, attachments = _collect_captured_web_reply(container, capture_q)
                         if not response:
                             response = captured_content
+                        elif captured_content:
+                            # Merge message-tool content into the main response so
+                            # attachments land in the same message the user reads.
+                            response = f"{response}\n\n{captured_content}"
                         _persist_attachments_to_session(container, sess, response or "", attachments)
                         await websocket.send_json({
                             "type": "done",

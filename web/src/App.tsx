@@ -124,6 +124,7 @@ export default function App() {
         <Route path="setting-check" element={<Chat />} />
         <Route path="setting-parser" element={<Chat />} />
         <Route path="risk-assessment" element={<Chat />} />
+        <Route path="safety-ticket-review" element={<Chat />} />
         <Route path="fault-analysis" element={<FaultAnalysisPage />} />
         <Route path="feedback" element={<FeedbackPage />} />
         <Route

@@ -38,9 +38,10 @@ RUN sed -i \
     && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
     && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends \
         curl \
+        libarchive-tools \
         libreoffice \
+        p7zip-full \
         tzdata \
-        antiword \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
@@ -67,10 +68,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         --default-timeout=300 \
         --retries=10 \
         -i ${PIP_INDEX_URL} \
-        -r /tmp/runtime-requirements.txt \
-    && pip uninstall -y numpy \
-    && pip install --no-cache-dir -i ${PIP_INDEX_URL} numpy==1.26.4 \
-    && pip install --no-cache-dir -i ${PIP_INDEX_URL} pymupdf xlrd openpyxl python-docx olefile
+        -r /tmp/runtime-requirements.txt
 
 RUN --mount=type=cache,id=tiktoken-cl100k-base,target=/tmp/tiktoken-build-cache <<'SH'
 set -e

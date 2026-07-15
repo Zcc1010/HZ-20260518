@@ -19,6 +19,7 @@ WEBUI_AUTH_DISABLED="${WEBUI_AUTH_DISABLED:-true}"
 INSTANCE_ROOT="${INSTANCE_ROOT:-/data/nanobot/user/public}"
 CONFIG_FILE="${CONFIG_FILE:-/data/nanobot/config.json}"
 SKILLS_ROOT="${SKILLS_ROOT:-/data/nanobot/skills}"
+PRESERVE_EXISTING_DEPLOYMENT_FILES="${PRESERVE_EXISTING_DEPLOYMENT_FILES:-1}"
 SKIP_BUILD=0
 
 export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
@@ -42,7 +43,7 @@ Environment overrides:
   NPM_REGISTRY             npm registry used during docker build
   PIP_INDEX_URL            Python package index used during docker build
   DOCKER_BUILDKIT          Docker BuildKit switch (default: 1)
-  PLATFORM                 Optional docker build --platform value, for example linux/amd64
+  PLATFORM                 Optional docker build --platform value
   PUBLISHED_PORT           Default published host port in generated compose file
   CONTAINER_NAME           Default container name in generated compose file
   TIMEZONE                 Default container timezone
@@ -52,6 +53,9 @@ Environment overrides:
   INSTANCE_ROOT            Default host path for /root/.nanobot mount
   CONFIG_FILE              Default host path for config.json mount
   SKILLS_ROOT              Default host path for skills mount
+  PRESERVE_EXISTING_DEPLOYMENT_FILES
+                           Keep existing docker-compose.yml/config.json in release dir
+                           and write refreshed templates to *.new (default: 1)
 EOF
 }
 
@@ -111,12 +115,14 @@ require_cmd() {
 }
 
 require_cmd docker
+
 if command -v pigz >/dev/null 2>&1; then
   COMPRESS_CMD="pigz"
 else
   require_cmd gzip
   COMPRESS_CMD="gzip"
 fi
+
 require_cmd awk
 
 if [[ "${SKIP_BUILD}" -eq 0 ]]; then
@@ -131,7 +137,7 @@ if [[ "${SKIP_BUILD}" -eq 0 ]]; then
   if [[ -n "${PLATFORM}" ]]; then
     build_args=(--platform "${PLATFORM}" "${build_args[@]}")
   fi
-  docker build --no-cache "${build_args[@]}" "${ROOT_DIR}"
+  docker build "${build_args[@]}" "${ROOT_DIR}"
 else
   echo "[release] skipping build, exporting existing image ${IMAGE_TAG}"
   if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
@@ -168,25 +174,66 @@ set_env_value() {
 }
 
 ENV_EXAMPLE="${TMP_RELEASE_DIR}/.env.example"
-if [[ -f "${ENV_EXAMPLE}" ]]; then
-  set_env_value "${ENV_EXAMPLE}" "CONTAINER_NAME" "${CONTAINER_NAME}"
-  set_env_value "${ENV_EXAMPLE}" "PUBLISHED_PORT" "${PUBLISHED_PORT}"
-  set_env_value "${ENV_EXAMPLE}" "TIMEZONE" "${TIMEZONE}"
-  set_env_value "${ENV_EXAMPLE}" "WEBUI_LOG_LEVEL" "${WEBUI_LOG_LEVEL}"
-  set_env_value "${ENV_EXAMPLE}" "WEBUI_ONLY" "${WEBUI_ONLY}"
-  set_env_value "${ENV_EXAMPLE}" "WEBUI_AUTH_DISABLED" "${WEBUI_AUTH_DISABLED}"
-  set_env_value "${ENV_EXAMPLE}" "INSTANCE_ROOT" "${INSTANCE_ROOT}"
-  set_env_value "${ENV_EXAMPLE}" "CONFIG_FILE" "${CONFIG_FILE}"
-  set_env_value "${ENV_EXAMPLE}" "SKILLS_ROOT" "${SKILLS_ROOT}"
-fi
+set_env_value "${ENV_EXAMPLE}" "CONTAINER_NAME" "${CONTAINER_NAME}"
+set_env_value "${ENV_EXAMPLE}" "PUBLISHED_PORT" "${PUBLISHED_PORT}"
+set_env_value "${ENV_EXAMPLE}" "TIMEZONE" "${TIMEZONE}"
+set_env_value "${ENV_EXAMPLE}" "WEBUI_LOG_LEVEL" "${WEBUI_LOG_LEVEL}"
+set_env_value "${ENV_EXAMPLE}" "WEBUI_ONLY" "${WEBUI_ONLY}"
+set_env_value "${ENV_EXAMPLE}" "WEBUI_AUTH_DISABLED" "${WEBUI_AUTH_DISABLED}"
+set_env_value "${ENV_EXAMPLE}" "INSTANCE_ROOT" "${INSTANCE_ROOT}"
+set_env_value "${ENV_EXAMPLE}" "CONFIG_FILE" "${CONFIG_FILE}"
+set_env_value "${ENV_EXAMPLE}" "SKILLS_ROOT" "${SKILLS_ROOT}"
 
 echo "[release] exporting image archive ${ARCHIVE_PATH}"
 docker save "${IMAGE_TAG}" | ${COMPRESS_CMD} -c > "${TMP_RELEASE_DIR}/${ARCHIVE_NAME}"
 
-rm -rf "${ABS_RELEASE_DIR}"
-mkdir -p "$(dirname "${ABS_RELEASE_DIR}")"
-mv "${TMP_RELEASE_DIR}" "${ABS_RELEASE_DIR}"
-TMP_RELEASE_DIR=""
+mkdir -p "${ABS_RELEASE_DIR}"
+
+is_preserved_file() {
+  case "$1" in
+    docker-compose.yml|config.json)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+install_release_file() {
+  local relative_path="$1"
+  local source_path="${TMP_RELEASE_DIR}/${relative_path}"
+  local target_path="${ABS_RELEASE_DIR}/${relative_path}"
+  local target_dir
+
+  target_dir="$(dirname "${target_path}")"
+  mkdir -p "${target_dir}"
+
+  if [[ "${PRESERVE_EXISTING_DEPLOYMENT_FILES}" != "0" ]] && is_preserved_file "${relative_path}" && [[ -e "${target_path}" ]]; then
+    if cmp -s "${source_path}" "${target_path}"; then
+      rm -f "${target_path}.new"
+      echo "[release] kept unchanged ${relative_path}"
+    else
+      cp "${source_path}" "${target_path}.new"
+      echo "[release] preserved existing ${relative_path}; wrote refreshed template ${relative_path}.new"
+    fi
+    return 0
+  fi
+
+  cp "${source_path}" "${target_path}"
+  rm -f "${target_path}.new"
+}
+
+for release_file in \
+  docker-compose.yml \
+  .env.example \
+  config.template.json \
+  config.json \
+  README.md \
+  DEPLOYMENT-GUIDE.md \
+  "${ARCHIVE_NAME}"; do
+  install_release_file "${release_file}"
+done
 
 echo "[release] generated files:"
 find "${ABS_RELEASE_DIR}" -maxdepth 2 -type f | sort

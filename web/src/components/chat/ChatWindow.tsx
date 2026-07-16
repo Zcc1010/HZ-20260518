@@ -154,7 +154,7 @@ export function ChatWindow({ urlSessionKey, isLoading, moduleTitle, moduleIcon }
         // cleanup. Deleting early causes "done" to add a duplicate message
         // because patchStreamingMessage can't find the streaming message.
       } else if (msg.type === "progress") {
-        if (msg.content?.trim() && msg.tool_hint) {
+        if (msg.content?.trim() && msg.tool_hint && (!msgSessionKey || msgSessionKey === currentKey)) {
           addMessage({
             id: nanoid(),
             role: "tool",

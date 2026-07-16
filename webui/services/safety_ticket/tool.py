@@ -1,7 +1,7 @@
 """safety_ticket tools — 二次安措票审查 agent tools。
 
 Tool 1: safety_ticket_review_extract
-  输入 .docx 安措票路径 → 返回票面文本 + 知识库内容，供 agent 审查分析。
+  输入 .doc/.docx 安措票路径 → 返回票面文本 + 知识库内容，供 agent 审查分析。
 
 Tool 2: safety_ticket_review_generate_report
   输入审查结果 JSON → 生成审查意见书 .docx。
@@ -64,6 +64,96 @@ def _extract_docx_text(file_path: str) -> str:
     return '\n'.join(out)
 
 
+def _extract_doc_text(file_path: str) -> str:
+    """从 .doc 提取纯文本（含表格），复用 converter.py 的逻辑。"""
+    import subprocess
+    from pathlib import Path
+
+    path = Path(file_path)
+
+    # Try antiword first (fast, accurate for MS Word .doc)
+    try:
+        result = subprocess.run(
+            ["antiword", str(path)],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            lines = result.stdout.splitlines()
+            if lines and lines[0].startswith("convert "):
+                lines = lines[1:]
+            return "\n".join(lines)
+    except FileNotFoundError:
+        pass  # antiword not installed, fall through
+
+    # Fallback: pure Python OLE2 text extraction (works with WPS .doc)
+    return _extract_doc_text_olefile(path)
+
+
+def _extract_doc_text_olefile(path: Path) -> str:
+    """从 .doc 提取纯文本（OLE2 格式）。"""
+    import struct
+    import re
+
+    try:
+        import olefile
+    except ImportError:
+        raise RuntimeError(
+            "antiword 不可用且未安装 olefile。"
+            "请安装 antiword 或运行: pip install olefile"
+        )
+
+    ole = olefile.OleFileIO(str(path))
+    wd = ole.openstream("WordDocument").read()
+
+    wIdent = struct.unpack_from("<H", wd, 0)[0]
+    if wIdent != 0xA5EC:
+        ole.close()
+        raise ValueError(f"不是有效的 Word 文档: {path.name}")
+
+    # Scan WordDocument stream for UTF-16LE encoded text
+    results = []
+    i = 0x200  # skip FIB header
+    current: list[str] = []
+    while i < len(wd) - 1:
+        char = struct.unpack_from("<H", wd, i)[0]
+        if (
+            (0x20 <= char <= 0x7E)
+            or (0x4E00 <= char <= 0x9FFF)  # CJK Unified
+            or (0x3000 <= char <= 0x303F)  # CJK Symbols
+            or (0xFF00 <= char <= 0xFFEF)  # Fullwidth Forms
+            or char in (0x000A, 0x000D, 0x0009)
+        ):
+            current.append(chr(char))
+        else:
+            if len(current) >= 5:
+                results.append("".join(current))
+            current = []
+        i += 2
+
+    if len(current) >= 5:
+        results.append("".join(current))
+
+    ole.close()
+
+    text = "\n".join(results)
+    # Remove control characters except newline/tab
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
+    return text
+
+
+def _extract_word_text(file_path: str) -> str:
+    """从 .doc 或 .docx 提取纯文本（含表格）。"""
+    from pathlib import Path
+    p = Path(file_path)
+    suffix = p.suffix.lower()
+    if suffix == ".docx":
+        return _extract_docx_text(file_path)
+    elif suffix == ".doc":
+        return _extract_doc_text(file_path)
+    else:
+        raise ValueError(f"不支持的文件格式: {suffix}")
+
+
 def _read_references(skill_dir: Path) -> dict[str, str]:
     """读取所有知识库参考文件。"""
     refs = {}
@@ -76,11 +166,11 @@ def _read_references(skill_dir: Path) -> dict[str, str]:
 
 @tool_parameters(
     tool_parameters_schema(
-        filePath=StringSchema("安措票 .docx 文件的绝对路径"),
+        filePath=StringSchema("安措票 .doc 或 .docx 文件的绝对路径"),
     )
 )
 class SafetyTicketReviewExtractTool(Tool):
-    """提取安措票文本并读取审查知识库。输入 .docx 文件路径，返回票面文本和审查参考知识库内容。"""
+    """提取安措票文本并读取审查知识库。输入 .doc 或 .docx 文件路径，返回票面文本和审查参考知识库内容。"""
 
     @property
     def name(self) -> str:
@@ -89,8 +179,8 @@ class SafetyTicketReviewExtractTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "提取二次安措票 .docx 文本并读取审查知识库。"
-            "输入 .docx 文件绝对路径，返回：1) 安措票全文（含表格）；2) 技术细则第5章；3) 审查要点知识库；4) 人工审查经验补充；5) 审查意见书示例。\n"
+            "提取二次安措票 .doc/.docx 文本并读取审查知识库。"
+            "输入 .doc 或 .docx 文件绝对路径，返回：1) 安措票全文（含表格）；2) 技术细则第5章；3) 审查要点知识库；4) 人工审查经验补充；5) 审查意见书示例。\n"
             "重要：调用此工具后，你必须在同一轮对话中立即完成以下全部工作，不要中途停下来回复用户：\n"
             "1. 分析返回的票面文本，判定作业类型（检验/改造）和设备类型（主变/母差/线路）\n"
             "2. 对照返回的知识库和审查意见书示例，逐条逐行审查（票面→原始状态→联跳→电流→电压→信号→交直流→过程安措）\n"
@@ -113,19 +203,19 @@ class SafetyTicketReviewExtractTool(Tool):
     async def execute(self, **kwargs: Any) -> str:
         file_path = (kwargs.get("filePath") or "").strip()
         if not file_path:
-            return "错误：请提供安措票 .docx 文件路径(filePath)。"
+            return "错误：请提供安措票 .doc 或 .docx 文件路径(filePath)。"
 
         p = Path(file_path)
         if not p.exists():
             return f"错误：文件不存在：{file_path}"
-        if not p.suffix.lower() == ".docx":
-            return f"错误：文件不是 .docx 格式：{p.suffix}"
+        if p.suffix.lower() not in (".doc", ".docx"):
+            return f"错误：文件不是 .doc 或 .docx 格式：{p.suffix}"
 
         try:
             skill_dir = _resolve_skill_dir()
 
             # 提取票面文本
-            ticket_text = _extract_docx_text(str(p))
+            ticket_text = _extract_word_text(str(p))
             logger.info("[safety-ticket] 提取票面文本完成，{} 字符", len(ticket_text))
 
             # 读取知识库

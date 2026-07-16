@@ -4,7 +4,15 @@ from pathlib import Path
 from webui.services.setting_check.converter import convert_to_md
 from webui.services.setting_check.device_extractor import build_extraction_prompt
 from webui.services.setting_check.principle_checker import build_check_prompt
-from webui.services.setting_check.router import load_rules_content, route_rules
+from webui.services.setting_check.router import (
+    load_rules_content,
+    load_key_constraints,
+    load_report_template,
+    load_device_principle,
+    load_upstream_template,
+    load_manual_content,
+    route_rules,
+)
 from webui.services.setting_check.report_header import generate_header
 
 REF_DIR = Path(__file__).parent / "references"
@@ -69,13 +77,13 @@ def run_pipeline(
         for name, content in calc_parts
     )
 
+    # Step 1: 提取设备信息
     agent1_prompt = build_extraction_prompt(setting_parts[0][1])
     agent1_response = llm_call_func(agent1_prompt)
 
     # Extract JSON from response (handle markdown code blocks or extra text)
     json_str = agent1_response.strip()
     if json_str.startswith("```"):
-        # Remove markdown code block
         lines = json_str.split("\n")
         if lines[0].startswith("```"):
             lines = lines[1:]
@@ -83,7 +91,6 @@ def run_pipeline(
             lines = lines[:-1]
         json_str = "\n".join(lines).strip()
 
-    # Try to find JSON object in the response
     import re
     json_match = re.search(r'\{[^{}]*\}', json_str, re.DOTALL)
     if json_match:
@@ -98,10 +105,27 @@ def run_pipeline(
     device_type = device_info.get("device_type", "")
     voltage_level = device_info.get("voltage_level", 0)
 
+    # Step 2: 加载所有参考材料
     rules_content = load_rules_content(device_type, voltage_level, REF_DIR)
     rules_paths = route_rules(device_type, voltage_level, REF_DIR)
     rules_names = [p.stem for p in rules_paths]
 
+    # 加载校核关键约束
+    constraints = load_key_constraints(REF_DIR)
+
+    # 加载校核报告模板
+    report_template = load_report_template(device_type, voltage_level, REF_DIR)
+
+    # 加载设备类型整定原则（综合版）
+    device_principle = load_device_principle(device_type, voltage_level, REF_DIR)
+
+    # 加载上下级定值模板
+    upstream_template = load_upstream_template(device_type, voltage_level, REF_DIR)
+
+    # 加载装置说明书
+    manual_content = load_manual_content(device_type, model, REF_DIR)
+
+    # Step 3: 生成校核报告
     agent2_prompt = build_check_prompt(
         setting_md=all_setting_md,
         calc_md=all_calc_md,
@@ -109,9 +133,15 @@ def run_pipeline(
         station=station,
         device=device,
         model=model,
+        constraints=constraints,
+        report_template=report_template,
+        manual_content=manual_content,
+        upstream_template=upstream_template,
+        device_principle=device_principle,
     )
     agent2_response = llm_call_func(agent2_prompt)
 
+    # Step 4: 生成报告头部并拼接
     header = generate_header(
         station=station,
         device=device,

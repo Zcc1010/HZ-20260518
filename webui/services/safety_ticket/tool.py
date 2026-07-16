@@ -220,7 +220,20 @@ class SafetyTicketReviewGenerateReportTool(Tool):
 
             # 确定输出路径
             if not output_file:
-                output_file = str(Path(source_file).parent / f"{Path(source_file).stem}_审查意见.docx")
+                # 如果 source_file 包含目录，输出到同目录；否则输出到 workspace 根目录
+                src_path = Path(source_file)
+                stem = src_path.stem
+                if src_path.parent != Path("."):
+                    output_file = str(src_path.parent / f"{stem}_审查意见.docx")
+                else:
+                    # source_file 只是文件名，尝试找到实际源文件所在目录
+                    workspace = Path.home() / ".nanobot" / "workspace"
+                    # 搜索源文件实际位置
+                    matches = list(workspace.rglob(f"*{stem}*"))
+                    if matches:
+                        output_file = str(matches[0].parent / f"{stem}_审查意见.docx")
+                    else:
+                        output_file = str(workspace / f"{stem}_审查意见.docx")
 
             d = Doc(output_file)
 
@@ -313,8 +326,13 @@ class SafetyTicketReviewGenerateReportTool(Tool):
             )
 
             d.save()
-            logger.info("[safety-ticket] 审查意见书已生成: {}", output_file)
-            return f"审查意见书已生成：{output_file}"
+            abs_path = str(Path(output_file).resolve())
+            logger.info("[safety-ticket] 审查意见书已生成: {}", abs_path)
+            return (
+                f"审查意见书已生成。\n"
+                f"文件路径：{abs_path}\n"
+                f"请使用 message 工具发送审查结果摘要，并将上述完整文件路径作为 media 参数发送附件。"
+            )
 
         except Exception as exc:
             logger.error("[safety-ticket] generate_report 失败: {}", exc)

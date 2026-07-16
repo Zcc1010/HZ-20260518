@@ -2,8 +2,10 @@
 """电网故障智能分析 API 路由"""
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
+import tempfile
 import uuid
 import zipfile
 from pathlib import Path
@@ -20,6 +22,25 @@ from webui.api.routes.agentplayground import ensure_agentplayground_enabled
 from webui.services.fault_analysis.service import FaultAnalysisService, APP_ID_FAULT_ANALYSIS
 
 router = APIRouter()
+
+
+class InitUploadRequest(BaseModel):
+    file_name: str
+    total_size: int
+    total_chunks: int
+
+
+class CompleteUploadRequest(BaseModel):
+    station: str = ""
+    device: str = ""
+    device_type: str = "线路"
+    voltage_level: str = "110kV"
+    external_id: str = ""
+
+
+class DownloadByIdRequest(BaseModel):
+    cookie: str = ""
+    equipmentName: str = ""
 
 
 def get_fault_analysis_service(svc: ServiceContainer) -> FaultAnalysisService:
@@ -59,6 +80,7 @@ class FaultAnalysisJobInfo(BaseModel):
     progress: int = 0
     progress_message: str | None = None
     evaluation: str | None = None
+    external_id: str = ""
 
 
 @router.get("/jobs", response_model=list[FaultAnalysisJobInfo])
@@ -78,6 +100,7 @@ async def create_fault_analysis_job(
     device: str = Form(""),
     device_type: str = Form(""),
     voltage_level: str = Form(""),
+    external_id: str = Form(""),
 ) -> FaultAnalysisJobInfo:
     ensure_agentplayground_enabled()
     service = get_fault_analysis_service(svc)
@@ -92,6 +115,7 @@ async def create_fault_analysis_job(
             device=device,
             device_type=device_type,
             voltage_level=voltage_level,
+            external_id=external_id,
         )
         return FaultAnalysisJobInfo(**job)
     except Exception as e:
@@ -200,3 +224,163 @@ async def export_fault_analysis_reports(
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=fault_analysis_reports.zip"},
     )
+
+
+# ── 分块上传端点 ──
+
+
+@router.post("/uploads/init")
+async def init_chunked_upload(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    body: InitUploadRequest,
+) -> dict:
+    ensure_agentplayground_enabled()
+    service = get_fault_analysis_service(svc)
+    return service.chunked_upload.init_upload(
+        file_name=body.file_name,
+        total_size=body.total_size,
+        total_chunks=body.total_chunks,
+    )
+
+
+@router.post("/uploads/{upload_id}/chunks/{chunk_index}")
+async def upload_chunk(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    upload_id: str,
+    chunk_index: int,
+    chunk: Annotated[UploadFile, File()],
+) -> dict:
+    ensure_agentplayground_enabled()
+    service = get_fault_analysis_service(svc)
+    data = await chunk.read()
+    return service.chunked_upload.save_chunk(upload_id, chunk_index, data)
+
+
+@router.post("/uploads/{upload_id}/complete", response_model=FaultAnalysisJobInfo)
+async def complete_chunked_upload(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    upload_id: str,
+    body: CompleteUploadRequest,
+) -> FaultAnalysisJobInfo:
+    ensure_agentplayground_enabled()
+    service = get_fault_analysis_service(svc)
+    try:
+        job = await service.create_job_from_chunked_upload(
+            upload_id=upload_id,
+            station=body.station,
+            device=body.device,
+            device_type=body.device_type,
+            voltage_level=body.voltage_level,
+            external_id=body.external_id,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return FaultAnalysisJobInfo(**job)
+
+
+# ── 外部ID查询 ──
+
+
+@router.get("/jobs/by-external-id/{external_id}", response_model=FaultAnalysisJobInfo)
+async def get_job_by_external_id(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    external_id: str,
+) -> FaultAnalysisJobInfo:
+    """通过外部系统 ID 查询任务。"""
+    ensure_agentplayground_enabled()
+    service = get_fault_analysis_service(svc)
+    job = service.get_job_by_external_id(external_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return FaultAnalysisJobInfo(**job)
+
+
+# ── 数据平台下载录波文件 ──
+
+
+@router.post("/jobs/download-by-id/{event_id}", response_model=FaultAnalysisJobInfo)
+async def download_and_create_job(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    event_id: str,
+    body: DownloadByIdRequest,
+) -> FaultAnalysisJobInfo:
+    """通过故障事件ID下载录波文件并创建任务。"""
+    from webui.services.wave_record_parser.downloader import EventDownloader
+    from webui.services.wave_record_parser.service import parse_fault_event_md
+
+    ensure_agentplayground_enabled()
+    service = get_fault_analysis_service(svc)
+
+    # 先检查是否已存在该 event_id 的任务
+    existing = service.get_job_by_external_id(event_id)
+    if existing is not None:
+        return FaultAnalysisJobInfo(**existing)
+
+    cookie = body.cookie if body else ""
+    equipment_name_param = body.equipmentName if body else ""
+
+    def _download_and_create():
+        downloader = EventDownloader(cookie=cookie)
+        with tempfile.TemporaryDirectory(prefix="fault_download_") as tmp_dir:
+            save_dir = downloader.download_event(event_id, tmp_dir)
+            # 从 _故障事件信息.md 提取装置名称
+            equipment_name = ""
+            for f in Path(save_dir).rglob("*.md"):
+                if "故障事件" in f.name:
+                    meta = parse_fault_event_md(f)
+                    equipment_name = (
+                        meta.get("equipmentName", "")
+                        or meta.get("设备名称", "")
+                        or meta.get("装置名称", "")
+                    )
+                    break
+            # 如果 md 文件中没有提取到，使用前端传入的 equipmentName
+            if not equipment_name and equipment_name_param:
+                equipment_name = equipment_name_param
+            # 收集所有文件
+            files_list = [f for f in Path(save_dir).rglob("*") if f.is_file()]
+            if not files_list:
+                raise FileNotFoundError("下载目录中没有找到文件")
+
+            # 创建 job 目录结构
+            import uuid as _uuid
+            job_id = _uuid.uuid4().hex[:12]
+            job_dir = service.jobs_dir / job_id
+            job_dir.mkdir(parents=True, exist_ok=True)
+            input_dir = job_dir / "input"
+            input_dir.mkdir(exist_ok=True)
+
+            # 复制文件到 input 目录
+            for f in files_list:
+                dest = input_dir / f.name
+                shutil.copy2(str(f), str(dest))
+
+            # 写入 DB
+            from webui.services.agentplayground.db import utcnow_iso
+            now = utcnow_iso()
+            with service._conn() as conn:
+                conn.execute(
+                    """INSERT INTO jobs (id, status, created_at, updated_at, station, device, device_type, voltage_level, folder_path, external_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (job_id, "processing", now, now,
+                     equipment_name, equipment_name, "线路", "110kV",
+                     str(input_dir), event_id),
+                )
+
+            return service.get_job(job_id), job_id, input_dir
+
+    try:
+        job, job_id, input_dir = await asyncio.to_thread(_download_and_create)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"下载失败: {e}")
+
+    # 启动后台分析任务（不阻塞响应）
+    asyncio.create_task(service._run_analysis(job_id, input_dir, "线路", "110kV"))
+
+    return FaultAnalysisJobInfo(**job)

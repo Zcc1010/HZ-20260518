@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, Zap, Search } from "lucide-react";
+import { Download, Plus, Loader2, ChevronLeft, ChevronRight, Eye, Trash2, FileArchive, Zap, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
@@ -27,6 +27,7 @@ interface FaultAnalysisJob {
   progress: number;
   progress_message?: string;
   evaluation?: string;
+  external_id?: string;
 }
 
 function formatDateTime(isoString: string): string {
@@ -69,6 +70,64 @@ async function fetchJobs(): Promise<FaultAnalysisJob[]> {
   return response.json();
 }
 
+const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB
+
+async function createJobChunked(
+  files: File[],
+  onProgress?: (fileIndex: number, fileProgress: number) => void,
+): Promise<FaultAnalysisJob> {
+  const zipFile = files.find((f) => /\.(zip|rar|7z|zwav)$/i.test(f.name));
+  if (!zipFile) throw new Error("No archive file found");
+
+  const totalChunks = Math.ceil(zipFile.size / CHUNK_SIZE);
+
+  // Step 1: Init upload
+  const initRes = await fetch(withBasePath("/api/fault-analysis/uploads/init"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file_name: zipFile.name,
+      total_size: zipFile.size,
+      total_chunks: totalChunks,
+    }),
+  });
+  if (!initRes.ok) throw new Error("Failed to initialize upload");
+  const { upload_id } = await initRes.json();
+
+  // Step 2: Upload chunks
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, zipFile.size);
+    const chunk = zipFile.slice(start, end);
+
+    const formData = new FormData();
+    formData.append("chunk", chunk, zipFile.name);
+
+    const chunkRes = await fetch(
+      withBasePath(`/api/fault-analysis/uploads/${upload_id}/chunks/${i}`),
+      { method: "POST", body: formData },
+    );
+    if (!chunkRes.ok) throw new Error(`Failed to upload chunk ${i + 1}/${totalChunks}`);
+
+    if (onProgress) onProgress(0, Math.round(((i + 1) / totalChunks) * 100));
+  }
+
+  // Step 3: Complete upload
+  const completeRes = await fetch(
+    withBasePath(`/api/fault-analysis/uploads/${upload_id}/complete`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ station: "", device: "", device_type: "", voltage_level: "" }),
+    },
+  );
+  if (!completeRes.ok) {
+    const error = await completeRes.text();
+    throw new Error(error || "Failed to complete upload");
+  }
+  return completeRes.json();
+}
+
 const PAGE_SIZE = 20;
 
 interface FaultAnalysisWorkspaceProps {
@@ -92,6 +151,7 @@ export function FaultAnalysisWorkspace({ selectedJob }: FaultAnalysisWorkspacePr
   const [deleting, setDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   const [nameFilter, setNameFilter] = useState("");
 
   const filteredJobs = jobs.filter((j) => {
@@ -250,6 +310,10 @@ export function FaultAnalysisWorkspace({ selectedJob }: FaultAnalysisWorkspacePr
               <h2 className="brand-display mt-2 text-2xl text-[#000]">电网故障智能分析</h2>
             </div>
             <div className="flex items-center gap-2 self-start sm:self-auto">
+              <Button onClick={() => setBatchDialogOpen(true)} className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]">
+                <Upload className="h-4 w-4" />
+                批量上传
+              </Button>
               <Button onClick={() => setDialogOpen(true)} className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]">
                 <Plus className="h-4 w-4" />
                 新建分析
@@ -332,6 +396,8 @@ export function FaultAnalysisWorkspace({ selectedJob }: FaultAnalysisWorkspacePr
 
         <CreateFaultAnalysisDialog open={dialogOpen} onOpenChange={setDialogOpen} onSuccess={(newJob) => setJobs((prev) => [newJob, ...prev])} />
 
+        <BatchUploadDialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen} onSuccess={(newJobs) => setJobs((prev) => [...newJobs, ...prev])} />
+
         <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
           <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-3xl max-h-[85vh] flex flex-col">
             <DialogHeader><DialogTitle className="brand-display text-[#000]">{previewTitle}</DialogTitle></DialogHeader>
@@ -374,6 +440,9 @@ export function FaultAnalysisWorkspace({ selectedJob }: FaultAnalysisWorkspacePr
             <Button onClick={handleExport} disabled={exporting} className="gap-2 bg-[#00706b] hover:bg-[#0d5d57] text-white border border-[#00706b]">
               {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileArchive className="h-4 w-4" />}
               导出{selectedCount > 0 ? ` (${selectedCount})` : ""}
+            </Button>
+            <Button onClick={() => setBatchDialogOpen(true)} className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]">
+              <Upload className="h-4 w-4" /> 批量上传
             </Button>
             <Button onClick={() => setDialogOpen(true)} className="gap-2 bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]">
               <Plus className="h-4 w-4" /> 新建分析
@@ -476,7 +545,10 @@ export function FaultAnalysisWorkspace({ selectedJob }: FaultAnalysisWorkspacePr
                                 </button>
                               )}
                               {job.status === "completed" && job.preview_url && (
-                                <button type="button" onClick={() => navigate(`/fault-analysis/${job.id}`)} className="inline-flex items-center text-[#298c88] hover:text-[#0d5d57] transition-colors" title="AI 对话分析">
+                                <button type="button" onClick={() => {
+                                  const eq = [job.station, job.device].filter(Boolean).join(" ");
+                                  navigate(`/fault-analysis/${job.id}${eq ? `?equipmentName=${encodeURIComponent(eq)}` : ""}`);
+                                }} className="inline-flex items-center text-[#298c88] hover:text-[#0d5d57] transition-colors" title="AI 对话分析">
                                   <Zap className="h-4 w-4" />
                                 </button>
                               )}
@@ -575,23 +647,19 @@ function CreateFaultAnalysisDialog({ open, onOpenChange, onSuccess }: CreateFaul
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
 
   const handleSubmit = async () => {
     if (files.length === 0) { setError("请选择录波压缩包"); return; }
 
     setSubmitting(true);
     setError(null);
+    setUploadProgress(0);
 
     try {
-      const formData = new FormData();
-      files.forEach((f) => formData.append("files", f));
-
-      const res = await fetch(withBasePath("/api/fault-analysis/jobs"), { method: "POST", body: formData });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || "创建任务失败");
-      }
-      const job = await res.json();
+      const job = await createJobChunked(files, (_, progress) => {
+        setUploadProgress(progress);
+      });
       onSuccess(job);
       onOpenChange(false);
       setFiles([]);
@@ -672,13 +740,226 @@ function CreateFaultAnalysisDialog({ open, onOpenChange, onSuccess }: CreateFaul
           {error && (
             <div className="rounded-md border border-red-300 bg-[#f5d5d5]/50 p-3 text-sm text-[#cc3333]">{error}</div>
           )}
+
+          {submitting && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs text-[#666]">
+                <span>上传中...</span>
+                <span>{uploadProgress}%</span>
+              </div>
+              <div className="h-2 bg-[#e8f0f0] rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-[#298c88] to-[#00706b] transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting} className="border-[#e0e0e0] bg-white text-[#000] hover:bg-[#f5f5f5]">取消</Button>
           <Button onClick={handleSubmit} disabled={submitting || files.length === 0} className="bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]">
-            {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> 分析中...</> : "开始分析"}
+            {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> {uploadProgress < 100 ? "上传中..." : "分析中..."}</> : "开始分析"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface BatchFileEntry {
+  file: File;
+  station: string;
+  device: string;
+  status: "pending" | "uploading" | "done" | "failed";
+  progress: number;
+  error?: string;
+  job?: FaultAnalysisJob;
+}
+
+interface BatchUploadDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: (jobs: FaultAnalysisJob[]) => void;
+}
+
+function BatchUploadDialog({ open, onOpenChange, onSuccess }: BatchUploadDialogProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [entries, setEntries] = useState<BatchFileEntry[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = event.target.files ? Array.from(event.target.files) : [];
+    const archiveFiles = selectedFiles.filter((f) => /\.(zip|rar|7z|zwav)$/i.test(f.name));
+    if (archiveFiles.length === 0 && selectedFiles.length > 0) {
+      toast.error("请选择压缩包文件");
+    }
+
+    const newEntries: BatchFileEntry[] = archiveFiles.map((f) => {
+      const name = f.name.replace(/\.(zip|rar|7z|zwav)$/i, "").trim();
+      return { file: f, station: name, device: name, status: "pending" as const, progress: 0 };
+    });
+    setEntries(newEntries);
+    if (event.target) event.target.value = "";
+  };
+
+  const updateEntry = (index: number, updates: Partial<BatchFileEntry>) => {
+    setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, ...updates } : e)));
+  };
+
+  const handleSubmit = async () => {
+    if (entries.length === 0) {
+      toast.error("请先选择文件");
+      return;
+    }
+    setSubmitting(true);
+
+    const createdJobs: FaultAnalysisJob[] = [];
+
+    await Promise.allSettled(
+      entries.map(async (entry, idx) => {
+        updateEntry(idx, { status: "uploading", progress: 0 });
+        try {
+          const job = await createJobChunked([entry.file], (_, progress) => {
+            updateEntry(idx, { progress });
+          });
+          updateEntry(idx, { status: "done", progress: 100, job });
+          createdJobs.push(job);
+        } catch (err) {
+          updateEntry(idx, { status: "failed", error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    if (createdJobs.length > 0) {
+      onSuccess(createdJobs);
+      toast.success(`成功上传 ${createdJobs.length} 个文件`);
+    }
+    if (createdJobs.length === 0 && entries.length > 0) {
+      toast.error("所有文件上传失败");
+    }
+    setSubmitting(false);
+  };
+
+  const handleClose = () => {
+    if (!submitting) {
+      setEntries([]);
+      onOpenChange(false);
+    }
+  };
+
+  const allDone = entries.length > 0 && entries.every((e) => e.status === "done" || e.status === "failed");
+  const doneCount = entries.filter((e) => e.status === "done").length;
+  const failedCount = entries.filter((e) => e.status === "failed").length;
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="bg-white border-[#e0e0e0] sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="brand-display text-[#000]">批量上传</DialogTitle>
+          <DialogDescription className="leading-6 text-[#666]">
+            选择多个压缩包文件，系统将并行上传并创建分析任务
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".zip,.rar,.7z,.zwav"
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={submitting}
+              className="border-[#84aca9] bg-[#f0f7fa] text-[#000] hover:bg-[#e0f0f0]"
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              选择文件
+            </Button>
+            {entries.length > 0 && (
+              <span className="text-sm text-[#555]">{entries.length} 个文件</span>
+            )}
+          </div>
+
+          {entries.length > 0 && (
+            <div className="max-h-[360px] overflow-auto rounded-lg border border-[#e0e0e0]">
+              <table className="w-full text-sm">
+                <thead className="bg-[#f0f7fa] sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2.5 text-left font-medium text-[#555] w-[55%]">文件名</th>
+                    <th className="px-3 py-2.5 text-left font-medium text-[#555] w-[15%]">大小</th>
+                    <th className="px-3 py-2.5 text-center font-medium text-[#555] w-[15%]">状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((entry, idx) => (
+                    <tr key={idx} className="border-t border-[#e8f0f0]">
+                      <td className="px-3 py-2 text-[#333] truncate max-w-[300px]" title={entry.file.name}>
+                        {entry.file.name}
+                      </td>
+                      <td className="px-3 py-2 text-[#888]">
+                        {(entry.file.size / 1024).toFixed(0)} KB
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {entry.status === "pending" && (
+                          <span className="text-xs text-[#888]">等待中</span>
+                        )}
+                        {entry.status === "uploading" && (
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-xs text-[#00706b]">{entry.progress}%</span>
+                            <div className="w-full h-1.5 bg-[#e8f0f0] rounded-full overflow-hidden">
+                              <div className="h-full bg-[#298c88] transition-all duration-300" style={{ width: `${entry.progress}%` }} />
+                            </div>
+                          </div>
+                        )}
+                        {entry.status === "done" && (
+                          <span className="text-xs text-[#0d5d57]">完成</span>
+                        )}
+                        {entry.status === "failed" && (
+                          <span className="text-xs text-[#cc3333]" title={entry.error}>失败</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {allDone && (
+            <div className="rounded-md bg-[#f0f7fa] border border-[#84aca9] p-3 text-sm text-[#0d5d57]">
+              上传完成：成功 {doneCount} 个{failedCount > 0 ? `，失败 ${failedCount} 个` : ""}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleClose}
+            disabled={submitting}
+            className="border-[#e0e0e0] bg-white text-[#000] hover:bg-[#f5f5f5]"
+          >
+            {allDone ? "关闭" : "取消"}
+          </Button>
+          {!allDone && (
+            <Button
+              onClick={handleSubmit}
+              disabled={submitting || entries.length === 0}
+              className="bg-[#298c88] hover:bg-[#0d5d57] text-white border border-[#298c88]"
+            >
+              {submitting ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> 上传中...</>
+              ) : (
+                "开始上传"
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

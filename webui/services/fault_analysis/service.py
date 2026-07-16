@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     result_file_size INTEGER,
     progress INTEGER DEFAULT 0,
     progress_message TEXT,
-    evaluation TEXT
+    evaluation TEXT,
+    external_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_fault_jobs_created_at
@@ -62,7 +63,25 @@ class FaultAnalysisService:
             return
         with connect(self._db_path) as conn:
             conn.executescript(_SCHEMA)
+            # Migration: add external_id column if missing
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN external_id TEXT")
+            except Exception:
+                pass  # column already exists
+            # Create index after column is guaranteed to exist
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_fault_jobs_external_id ON jobs (external_id)")
         self._initialized = True
+
+    @property
+    def chunked_upload(self):
+        if not hasattr(self, "_chunked_upload"):
+            from webui.services.wave_record_parser.service import ChunkedUploadManager
+            self._chunked_upload = ChunkedUploadManager(self.app_root)
+        return self._chunked_upload
+
+    @property
+    def db_path(self):
+        return self._db_path
 
     def _schedule_queue(self):
         pass
@@ -91,6 +110,7 @@ class FaultAnalysisService:
         device: str,
         device_type: str = "线路",
         voltage_level: str = "110kV",
+        external_id: str = "",
     ) -> dict:
         job_id = uuid.uuid4().hex[:12]
         job_dir = self.jobs_dir / job_id
@@ -109,15 +129,64 @@ class FaultAnalysisService:
         now = utcnow_iso()
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO jobs (id, status, created_at, updated_at, station, device, device_type, voltage_level, folder_path)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (job_id, "processing", now, now, station, device, device_type, voltage_level, str(input_dir)),
+                """INSERT INTO jobs (id, status, created_at, updated_at, station, device, device_type, voltage_level, folder_path, external_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (job_id, "processing", now, now, station, device, device_type, voltage_level, str(input_dir), external_id or None),
             )
 
         # 启动后台分析任务
         asyncio.create_task(self._run_analysis(job_id, input_dir, device_type, voltage_level))
 
         return self.get_job(job_id)
+
+    async def create_job_from_chunked_upload(
+        self,
+        upload_id: str,
+        station: str = "",
+        device: str = "",
+        device_type: str = "线路",
+        voltage_level: str = "110kV",
+        external_id: str = "",
+    ) -> dict:
+        """从分块上传创建任务。"""
+        assembled_path = self.chunked_upload.assemble_file(upload_id)
+
+        job_id = uuid.uuid4().hex[:12]
+        job_dir = self.jobs_dir / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        input_dir = job_dir / "input"
+        input_dir.mkdir(exist_ok=True)
+
+        # 移动组装好的文件到 input 目录
+        dest = input_dir / assembled_path.name
+        shutil.move(str(assembled_path), str(dest))
+
+        # 如果是 zip 文件，解压
+        if dest.suffix.lower() == ".zip":
+            import zipfile
+            with zipfile.ZipFile(dest, "r") as zf:
+                zf.extractall(input_dir)
+
+        now = utcnow_iso()
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO jobs (id, status, created_at, updated_at, station, device, device_type, voltage_level, folder_path, external_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (job_id, "processing", now, now, station, device, device_type, voltage_level, str(input_dir), external_id or None),
+            )
+
+        asyncio.create_task(self._run_analysis(job_id, input_dir, device_type, voltage_level))
+
+        return self.get_job(job_id)
+
+    def get_job_by_external_id(self, external_id: str) -> dict | None:
+        """通过外部系统 ID 查询任务。"""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE external_id = ?", (external_id,)
+            ).fetchone()
+        return self._row_to_dict(row) if row else None
 
     def _resolve_skill_dir(self, skill_name: str) -> Path:
         """查找 skills 目录，兼容开发环境和 pip 安装部署。"""
@@ -539,7 +608,7 @@ class FaultAnalysisService:
         if isinstance(device_metadata, list):
             for item in device_metadata:
                 if isinstance(item, dict):
-                    dtype = item.get("device_type", "")
+                    dtype = item.get("device_type") or ""
                     if "母差" in dtype or "母线" in dtype or dtype == "busbar":
                         return "母差"
                     elif "主变" in dtype or "变压器" in dtype or dtype == "transformer":
@@ -551,7 +620,7 @@ class FaultAnalysisService:
                     elif dtype == "line":
                         return "线路"
         elif isinstance(device_metadata, dict):
-            dtype = device_metadata.get("device_type", "")
+            dtype = device_metadata.get("device_type") or ""
             if "母差" in dtype or "母线" in dtype:
                 return "母差"
             elif "主变" in dtype or "变压器" in dtype:
@@ -1038,7 +1107,7 @@ class FaultAnalysisService:
             return {}
 
         _str_fields = [
-            "station", "device", "device_type", "voltage_level", "folder_path",
+            "station", "device", "device_type", "voltage_level", "folder_path", "external_id",
         ]
 
         if hasattr(row, "keys"):
@@ -1053,6 +1122,7 @@ class FaultAnalysisService:
                 "result_download_token": row[13], "result_mime_type": row[14],
                 "result_file_size": row[15], "progress": row[16],
                 "progress_message": row[17], "evaluation": row[18],
+                "external_id": row[19] if len(row) > 19 else "",
             }
 
         for k in _str_fields:

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { nanoid } from "nanoid";
 import {
   Loader2,
@@ -80,6 +80,8 @@ function formatDateTime(isoString: string): string {
 
 export default function FaultAnalysisReportPage() {
   const { jobId } = useParams<{ jobId: string }>();
+  const [searchParams] = useSearchParams();
+  const equipmentName = searchParams.get("equipmentName") || "";
   const navigate = useNavigate();
 
   const [job, setJob] = useState<FaultAnalysisJob | null>(null);
@@ -88,8 +90,8 @@ export default function FaultAnalysisReportPage() {
   const [error, setError] = useState<string | null>(null);
   const [polling, setPolling] = useState(false);
 
-  const displayStation = job?.station || "未知站点";
-  const displayDevice = job?.device || "未知设备";
+  const displayStation = job?.station || equipmentName.split(" ")[0] || "未知站点";
+  const displayDevice = job?.device || equipmentName.split(" ").slice(1).join(" ") || equipmentName || "未知设备";
 
   const {
     messages,
@@ -153,6 +155,50 @@ export default function FaultAnalysisReportPage() {
     };
   }, []);
 
+  // Download from data platform and create job
+  const downloadAndCreate = useCallback(async (eventId: string) => {
+    try {
+      const res = await fetch(withBasePath(`/api/fault-analysis/jobs/download-by-id/${eventId}`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ equipmentName }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "下载失败");
+      }
+      let newJob = await res.json();
+      // 如果 station/device 为空但 URL 带了 equipmentName，回填数据库
+      if (!newJob.station && !newJob.device && equipmentName) {
+        try {
+          const patchRes = await fetch(withBasePath(`/api/fault-analysis/jobs/${newJob.id}`), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              station: equipmentName,
+              device: equipmentName,
+            }),
+          });
+          if (patchRes.ok) {
+            newJob = await patchRes.json();
+          }
+        } catch { /* ignore */ }
+      }
+      setJob(newJob);
+      if (newJob.status === "completed" && newJob.preview_url) {
+        const content = await fetchPreview(newJob.id);
+        setPreviewContent(content);
+        setLoading(false);
+      } else {
+        setLoading(false);
+        startPolling(newJob.id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "从数据平台下载录波文件失败");
+      setLoading(false);
+    }
+  }, [startPolling, equipmentName]);
+
   // Fetch job & preview
   useEffect(() => {
     if (!jobId) {
@@ -162,6 +208,22 @@ export default function FaultAnalysisReportPage() {
     }
     fetchJob(jobId)
       .then(async (data) => {
+        // 如果 station/device 为空但 URL 带了 equipmentName，回填数据库
+        if (!data.station && !data.device && equipmentName) {
+          try {
+            const patchRes = await fetch(withBasePath(`/api/fault-analysis/jobs/${data.id}`), {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                station: equipmentName,
+                device: equipmentName,
+              }),
+            });
+            if (patchRes.ok) {
+              data = await patchRes.json();
+            }
+          } catch { /* ignore */ }
+        }
         setJob(data);
         if (data.status === "completed" && data.preview_url) {
           const content = await fetchPreview(jobId);
@@ -178,10 +240,10 @@ export default function FaultAnalysisReportPage() {
         }
       })
       .catch(() => {
-        setError("未找到该分析任务");
-        setLoading(false);
+        // Job not found, try downloading from data platform
+        downloadAndCreate(jobId);
       });
-  }, [jobId, startPolling]);
+  }, [jobId, startPolling, downloadAndCreate]);
 
   useEffect(() => {
     jobRef.current = job;

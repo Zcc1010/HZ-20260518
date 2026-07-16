@@ -60,7 +60,7 @@ def _safe_join(base: Path, target: str) -> Path:
 IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "svg", "webp"}
 BINARY_EXTS = {"xls", "xlsx", "docx"}
 PDF_EXTS = {"pdf"}
-EXCLUDED_DIRS = {"node_modules", "temp", "__pycache__", ".git"}
+EXCLUDED_DIRS = {"node_modules", "temp", "__pycache__", ".git", "memory"}
 
 
 def _build_tree(dir_path: Path, base_path: Path) -> list[dict[str, Any]]:

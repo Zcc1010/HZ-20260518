@@ -592,3 +592,201 @@ class SettingCheckGenerateTool(Tool):
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
             return f"错误：生成报告失败：{exc}"
+
+
+WORKSPACE_READ_TOOL_DESC = """读取定值校核工作区中的文件内容。可读取定值单、计算书、说明书、整定原则、台账、报告等目录下的文件。
+
+参数说明：
+- workspace: 工作区名称（必填），如 "安徽.阳湖变-测试"
+- path: 文件相对路径（必填），如 "定值单/xxx.xlsx"、"计算书/xxx.docx"、"说明书/xxx.pdf"
+
+支持的文件类型：
+- 文本文件（.md, .txt）：直接返回文本内容
+- Excel 文件（.xlsx, .xls）：转换为 CSV 文本返回
+- Word 文件（.docx）：提取文本内容返回
+- PDF 文件（.pdf）：提取文本内容返回
+- 图片文件（.png, .jpg 等）：返回说明信息
+
+使用场景：用户要求重新审核、查看工作区文件、基于工作区文件分析时，先用此工具读取相关文件内容。
+"""
+
+
+@tool_parameters(
+    tool_parameters_schema(
+        workspace=StringSchema("工作区名称（必填），如 '安徽.阳湖变-测试'"),
+        path=StringSchema("文件相对路径（必填），如 '定值单/xxx.xlsx'、'计算书/xxx.docx'"),
+    )
+)
+class SettingCheckWorkspaceReadTool(Tool):
+    """读取定值校核工作区中的文件内容。"""
+
+    @property
+    def name(self) -> str:
+        return "setting_check_workspace_read"
+
+    @property
+    def description(self) -> str:
+        return WORKSPACE_READ_TOOL_DESC
+
+    @property
+    def read_only(self) -> bool:
+        return True
+
+    async def execute(self, **kwargs: Any) -> str:
+        import re
+
+        workspace = (kwargs.get("workspace") or "").strip()
+        path = (kwargs.get("path") or "").strip()
+
+        if not workspace:
+            return "错误：请提供 workspace 参数（工作区名称）"
+        if not path:
+            return "错误：请提供 path 参数（文件相对路径，如 '定值单/xxx.xlsx'）"
+
+        # 标准化工作区名称
+        if "/" in workspace or "\\" in workspace:
+            workspace = workspace.rstrip("/").rstrip("\\").split("/")[-1].split("\\")[-1]
+        workspace = re.sub(r'\s*-\s*', '-', workspace)
+        workspace = re.sub(r'\s+', '', workspace)
+
+        ws_path = _AGENTPLAYGROUND_DIR / "setting-check" / "workspace" / workspace
+        if not ws_path.exists():
+            # 模糊匹配
+            parent = _AGENTPLAYGROUND_DIR / "setting-check" / "workspace"
+            if parent.exists():
+                candidates = [d.name for d in parent.iterdir() if d.is_dir()]
+                normalized = workspace.replace(" ", "")
+                for c in candidates:
+                    if c.replace(" ", "") == normalized:
+                        ws_path = parent / c
+                        workspace = c
+                        break
+            if not ws_path.exists():
+                return f"错误：工作区 '{workspace}' 不存在"
+
+        # 安全拼接路径
+        try:
+            full = _safe_join(ws_path, path)
+        except ValueError:
+            return f"错误：路径不合法或越权访问"
+
+        if not full.exists():
+            return f"错误：文件不存在：{path}"
+
+        if full.is_dir():
+            # 返回目录下的文件列表
+            items = []
+            for entry in sorted(full.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
+                if entry.name.startswith("."):
+                    continue
+                kind = "[目录]" if entry.is_dir() else "[文件]"
+                items.append(f"  {kind} {entry.name}")
+            return f"「{path}」是一个目录，包含 {len(items)} 个项目：\n" + "\n".join(items)
+
+        ext = full.suffix.lower()
+        size = full.stat().st_size
+
+        # 限制文件大小（5MB）
+        if size > 5 * 1024 * 1024:
+            return f"错误：文件过大（{size / 1024 / 1024:.1f}MB），超过 5MB 限制"
+
+        # 图片：返回说明
+        if ext in {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'}:
+            return f"「{path}」是一个图片文件（{ext}，{size / 1024:.1f}KB）。如需查看图片内容，请使用 read_file 工具读取。"
+
+        # 文本文件：直接读取
+        if ext in {'.md', '.txt', '.csv', '.json', '.xml', '.html', '.htm'}:
+            try:
+                text = full.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                text = full.read_text(encoding="gbk", errors="replace")
+            return f"文件：{workspace}/{path}\n大小：{size / 1024:.1f}KB\n{'=' * 60}\n\n{text}"
+
+        # Excel 文件：转换为 CSV
+        if ext in {'.xlsx', '.xls'}:
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(str(full), read_only=True, data_only=True)
+                output_parts = []
+                for sheet_name in wb.sheetnames:
+                    ws_obj = wb[sheet_name]
+                    rows = []
+                    for row in ws_obj.iter_rows(values_only=True):
+                        cells = [str(c) if c is not None else "" for c in row]
+                        rows.append(",".join(cells))
+                    sheet_text = "\n".join(rows)
+                    output_parts.append(f"### Sheet: {sheet_name}\n{sheet_text}")
+                wb.close()
+                content = "\n\n".join(output_parts)
+                return f"文件：{workspace}/{path}\n类型：Excel\n工作表：{', '.join(wb.sheetnames)}\n{'=' * 60}\n\n{content}"
+            except Exception as exc:
+                return f"错误：读取 Excel 文件失败：{exc}"
+
+        # Word 文件：提取文本
+        if ext in {'.docx', '.doc'}:
+            try:
+                if ext == '.docx':
+                    from docx import Document
+                    doc = Document(str(full))
+                    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+                    content = "\n\n".join(paragraphs)
+                    # 也提取表格内容
+                    for table in doc.tables:
+                        for row in table.rows:
+                            cells = [cell.text.strip() for cell in row.cells]
+                            content += "\n" + " | ".join(cells)
+                else:
+                    # .doc 格式尝试 antiword
+                    import subprocess
+                    result = subprocess.run(
+                        ["antiword", str(full)],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    if result.returncode == 0:
+                        content = result.stdout
+                    else:
+                        return f"错误：无法读取 .doc 格式文件，请转换为 .docx 后重试"
+                return f"文件：{workspace}/{path}\n类型：Word 文档\n{'=' * 60}\n\n{content}"
+            except Exception as exc:
+                return f"错误：读取 Word 文件失败：{exc}"
+
+        # PDF 文件：提取文本
+        if ext == '.pdf':
+            try:
+                import subprocess
+                # 尝试 pdftotext
+                result = subprocess.run(
+                    ["pdftotext", str(full), "-"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    content = result.stdout
+                    return f"文件：{workspace}/{path}\n类型：PDF\n{'=' * 60}\n\n{content}"
+                else:
+                    return f"错误：无法提取 PDF 文本内容（pdftotext 不可用或 PDF 为扫描件）"
+            except FileNotFoundError:
+                return f"错误：系统未安装 pdftotext 工具，无法读取 PDF 文件"
+            except Exception as exc:
+                return f"错误：读取 PDF 文件失败：{exc}"
+
+        # 其他文件：尝试读取为文本
+        try:
+            text = full.read_text(encoding="utf-8", errors="replace")
+            return f"文件：{workspace}/{path}\n类型：{ext}\n{'=' * 60}\n\n{text}"
+        except Exception:
+            return f"错误：不支持的文件类型：{ext}"
+
+
+def _safe_join(base: Path, target: str) -> Path:
+    """防止路径穿越，允许软链接指向 resources 和 temp 目录。"""
+    result = (base / target).resolve()
+    base_resolved = base.resolve()
+    if str(result).startswith(str(base_resolved)):
+        return result
+    resources_dir = (_AGENTPLAYGROUND_DIR / "resources").resolve()
+    if str(result).startswith(str(resources_dir)):
+        return result
+    temp_dir = (_AGENTPLAYGROUND_DIR / "temp").resolve()
+    if str(result).startswith(str(temp_dir)):
+        return result
+    raise ValueError("path traversal detected")

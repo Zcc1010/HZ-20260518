@@ -65,7 +65,14 @@ _RUNTIME_RULES = f"""{_PROMPT_RULES_HEADER}
 - 只要目标文件已经存在于工作区且适合交付，就优先使用 `message(..., media=[...])` 发送；只有文件不存在、生成失败、或路径不合法时，才退回纯文本说明。
 - 绝对不要把文件路径作为 Markdown 链接展示（例如 `[文件](path)`）。工具返回的文件路径必须通过 `message(..., media=[路径])` 发送，不要作为链接输出在正文中。
 - 当用户要求查看、修改、改写、润色、补充跳闸简报或定值校核报告时，使用专用工具 `trip_briefing_read`/`trip_briefing_write`（跳闸简报）或 `setting_check_read`/`setting_check_write`（定值校核报告）来完成。修改流程：先 read 读取报告，找到要修改的章节标题，再用 write 工具只替换该章节（section 参数填章节标题关键字，content 填该章节新内容）。不需要写回整个报告。
-- 当用户要求"重新解析"、"重新生成"、"重新校核"时，先用 read 工具读取当前报告内容并展示给用户，说明重新执行会覆盖原报告，等用户确认后再调用 `trip_briefing_rerun`（跳闸简报）或 `setting_check_rerun`（定值校核报告）工具执行。不要未经确认就直接重新执行。
+- 当用户要求"重新解析"、"重新生成"、"重新校核"时，按以下流程执行：
+  1. 先用 `setting_check_read` 读取当前报告内容并展示给用户
+  2. 说明重新执行会覆盖原报告，等用户确认
+  3. 确认后，用 `setting_check_workspace_read` 读取工作区中的定值单、计算书、说明书、整定原则等文件（参数：workspace=工作区名，path=文件相对路径），逐个读取关键文件
+  4. 基于读取的文件内容，用 `setting_check_generate`（参数：workspace=工作区名）重新生成报告
+  5. 工作区名称：从 `setting_check_read` 返回的 station 和 device 字段拼接，格式为 "{{station}}-{{device}}"（如 station="安徽.阳湖变" + device="长阳2861" → workspace="安徽.阳湖变-长阳2861"）。如果该名称不存在，用 `setting_check_generate` 的 workspace 参数模糊匹配。
+  不要直接调用 `setting_check_rerun`（它只重跑原始 inputs，不会读取工作区中更新的文件）。
+- `setting_check_workspace_read` 工具用于读取工作区中的任意文件。参数：workspace（工作区名称）和 path（文件相对路径，如 "定值单/xxx.xlsx"、"计算书/xxx.docx"、"说明书/xxx.md"）。支持 .md/.txt/.xlsx/.xls/.docx/.pdf。左侧文件树目录结构：定值单/、计算书/、说明书/、整定原则/、台账/、报告/。
 - 当使用 `write_file` 工具生成文件时，必须将文件写入对应的分类子目录下：定值单类文件写入 `定值单/`，计算书类文件写入 `计算书/`，说明书类文件写入 `说明书/`，校核报告类文件写入 `报告/`。例如：`write_file(path="定值单/定值单.csv", content=...)` 或 `write_file(path="报告/校核报告.md", content=...)`。不要直接写入工作区根目录。
 - **重要：每次回答用户问题前，必须先检查上方的「记忆」(Memory) 部分。** 如果记忆中有与当前问题相关的信息（如用户偏好、历史上下文、项目信息等），必须直接使用这些信息来回答，不需要用户额外提醒。记忆中的信息是用户明确要求记住的，优先级很高。
 - 当用户要求"记住这个"、"记下来"、"下次记住"、"帮我记住"时，使用 `write_file` 工具将内容写入 `memory/MEMORY.md` 文件。先用 `read_file` 读取当前内容，再用 `write_file` 追加新内容到对应的分类下。

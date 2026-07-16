@@ -1,9 +1,9 @@
 import json
+import re
 from pathlib import Path
 
 from webui.services.setting_check.converter import convert_to_md
-from webui.services.setting_check.device_extractor import build_extraction_prompt
-from webui.services.setting_check.principle_checker import build_check_prompt
+from webui.services.setting_check.principle_checker import build_check_prompt, build_cleanup_prompt
 from webui.services.setting_check.router import (
     load_rules_content,
     load_key_constraints,
@@ -13,11 +13,25 @@ from webui.services.setting_check.router import (
     load_manual_content,
     route_rules,
 )
-from webui.services.setting_check.report_header import generate_header
 
 REF_DIR = Path(__file__).parent / "references"
 
 SETTING_EXTENSIONS = {".xls", ".xlsx", ".doc", ".docx", ".pdf", ".md", ".txt"}
+
+# 设备类型关键词 → 英文 key
+_DEVICE_TYPE_KEYWORDS = {
+    "变压器": "transformer",
+    "主变": "transformer",
+    "线路": "line",
+    "母线": "bus",
+    "母差": "bus",
+    "母联": "breaker",
+    "分段": "breaker",
+    "电容器": "capacitor",
+    "电抗器": "reactor",
+    "接地变": "grounding_transformer",
+    "站用变": "station_transformer",
+}
 
 
 def _collect_settings(paths: list[str]) -> list[tuple[str, str]]:
@@ -51,12 +65,113 @@ def _collect_calcs(paths: list[str]) -> list[tuple[str, str]]:
     return results
 
 
+def _extract_device_info(setting_md: str, setting_names: list[str]) -> dict:
+    """从定值单内容中提取设备信息（纯规则，不调用 LLM）。"""
+    info = {
+        "station": "",
+        "device": "",
+        "model": "",
+        "version": "",
+        "device_type": "",
+        "voltage_level": 0,
+    }
+
+    # 从文件名提取厂站名（通常格式：{厂站}{设备}定值单.xls）
+    if setting_names:
+        fname = setting_names[0]
+        # 去掉扩展名
+        name = Path(fname).stem
+        # 尝试提取厂站（取前面的中文部分）
+        m = re.match(r'^([一-鿿]+(?:变|站|厂|所))', name)
+        if m:
+            info["station"] = m.group(1)
+
+    # 从定值单内容提取设备类型
+    for keyword, device_type in _DEVICE_TYPE_KEYWORDS.items():
+        if keyword in setting_md[:5000]:  # 只看前 5000 字符
+            info["device_type"] = device_type
+            break
+
+    # 从定值单内容提取电压等级
+    voltage_match = re.search(r'(\d+)\s*[kK][vV]', setting_md[:3000])
+    if voltage_match:
+        info["voltage_level"] = int(voltage_match.group(1))
+
+    # 从定值单内容提取装置型号
+    model_match = re.search(r'(?:保护装置型号|装置型号|保护型号)[：:\s]*([A-Za-z]+-?\d+[A-Za-z]*)', setting_md[:5000])
+    if model_match:
+        info["model"] = model_match.group(1).strip()
+
+    # 从定值单内容提取软件版本
+    version_match = re.search(r'(?:软件版本|版本号|程序版本)[：:\s]*([^\s|]+)', setting_md[:5000])
+    if version_match:
+        info["version"] = version_match.group(1).strip()
+
+    # 从定值单内容提取设备名称
+    device_match = re.search(r'(?:设备名称|被保护设备|一次设备)[：:\s]*([^\n|]+)', setting_md[:5000])
+    if device_match:
+        info["device"] = device_match.group(1).strip()
+
+    return info
+
+
+def _extract_device_info_from_report(report: str) -> dict:
+    """从 LLM 生成的报告中提取设备信息（补充/修正）。"""
+    info = {}
+
+    m = re.search(r'\|\s*厂站\s*\|\s*(.+?)\s*\|', report)
+    if m:
+        val = m.group(1).strip().strip('-').strip()
+        if val:
+            info["station"] = val
+
+    m = re.search(r'\|\s*设备名称\s*\|\s*(.+?)\s*\|', report)
+    if m:
+        val = m.group(1).strip().strip('-').strip()
+        if val:
+            info["device"] = val
+
+    m = re.search(r'\|\s*装置型号\s*\|\s*(.+?)\s*\|', report)
+    if m:
+        val = m.group(1).strip().strip('-').strip()
+        if val:
+            info["model"] = val
+
+    m = re.search(r'\|\s*软件版本\s*\|\s*(.+?)\s*\|', report)
+    if m:
+        val = m.group(1).strip().strip('-').strip()
+        if val:
+            info["version"] = val
+
+    m = re.search(r'\|\s*电压等级\s*\|\s*(\d+)\s*kV\s*\|', report)
+    if m:
+        info["voltage_level"] = int(m.group(1))
+
+    m = re.search(r'\|\s*设备类型\s*\|\s*(.+?)\s*\|', report)
+    if m:
+        type_cn = m.group(1).strip().strip('-').strip()
+        cn_to_en = {
+            "变压器": "transformer",
+            "线路": "line",
+            "母线": "bus",
+            "母联分段": "breaker",
+            "电容器": "capacitor",
+            "电抗器": "reactor",
+            "接地变": "grounding_transformer",
+            "站用变": "station_transformer",
+        }
+        info["device_type"] = cn_to_en.get(type_cn, type_cn)
+
+    return info
+
+
 def run_pipeline(
     setting_paths: list[str],
     calc_paths: list[str],
     llm_call_func,
     output_dir: str = "",
 ) -> dict:
+    # Step 1: 文件转换
     setting_parts = _collect_settings(setting_paths)
     if not setting_parts:
         raise ValueError(f"未找到定值单文件: {setting_paths}")
@@ -77,61 +192,30 @@ def run_pipeline(
         for name, content in calc_parts
     )
 
-    # Step 1: 提取设备信息
-    agent1_prompt = build_extraction_prompt(setting_parts[0][1])
-    agent1_response = llm_call_func(agent1_prompt)
-
-    # Extract JSON from response (handle markdown code blocks or extra text)
-    json_str = agent1_response.strip()
-    if json_str.startswith("```"):
-        lines = json_str.split("\n")
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        json_str = "\n".join(lines).strip()
-
-    import re
-    json_match = re.search(r'\{[^{}]*\}', json_str, re.DOTALL)
-    if json_match:
-        json_str = json_match.group(0)
-
-    device_info = json.loads(json_str)
-
-    station = device_info.get("station", "")
-    device = device_info.get("device", "")
-    model = device_info.get("model", "")
-    version = device_info.get("version", "")
+    # Step 2: 从定值单内容提取设备信息（纯规则，不调用 LLM）
+    device_info = _extract_device_info(all_setting_md, setting_names)
     device_type = device_info.get("device_type", "")
     voltage_level = device_info.get("voltage_level", 0)
+    model = device_info.get("model", "")
 
-    # Step 2: 加载所有参考材料
+    # Step 3: 加载设备专属参考材料
     rules_content = load_rules_content(device_type, voltage_level, REF_DIR)
     rules_paths = route_rules(device_type, voltage_level, REF_DIR)
     rules_names = [p.stem for p in rules_paths]
 
-    # 加载校核关键约束
     constraints = load_key_constraints(REF_DIR)
-
-    # 加载校核报告模板
     report_template = load_report_template(device_type, voltage_level, REF_DIR)
-
-    # 加载设备类型整定原则（综合版）
     device_principle = load_device_principle(device_type, voltage_level, REF_DIR)
-
-    # 加载上下级定值模板
     upstream_template = load_upstream_template(device_type, voltage_level, REF_DIR)
+    manual_content = load_manual_content(device_type, model, REF_DIR) if model else ""
 
-    # 加载装置说明书
-    manual_content = load_manual_content(device_type, model, REF_DIR)
-
-    # Step 3: 生成校核报告
-    agent2_prompt = build_check_prompt(
+    # Step 4: 单次 LLM 调用（信息提取 + 校核合一）
+    prompt = build_check_prompt(
         setting_md=all_setting_md,
         calc_md=all_calc_md,
         rules_content=rules_content,
-        station=station,
-        device=device,
+        station=device_info.get("station", ""),
+        device=device_info.get("device", ""),
         model=model,
         constraints=constraints,
         report_template=report_template,
@@ -139,27 +223,27 @@ def run_pipeline(
         upstream_template=upstream_template,
         device_principle=device_principle,
     )
-    agent2_response = llm_call_func(agent2_prompt)
+    draft = llm_call_func(prompt)
 
-    # Step 4: 生成报告头部并拼接
-    header = generate_header(
-        station=station,
-        device=device,
-        model=model,
-        version=version,
-        setting_file="、".join(setting_names),
-        calc_file="、".join(calc_names),
-        rules_names=rules_names,
-        device_type=device_type,
-        voltage_level=voltage_level,
-    )
-    full_report = header + "\n\n" + agent2_response
+    # Step 5: Cleanup（删除推理过程）
+    cleanup_prompt = build_cleanup_prompt(draft)
+    report = llm_call_func(cleanup_prompt)
+
+    # Step 6: 从报告中补充/修正设备信息
+    report_info = _extract_device_info_from_report(report)
+    for key, val in report_info.items():
+        if val and (not device_info.get(key)):
+            device_info[key] = val
+
+    # Step 7: 写入文件
+    station = device_info.get("station", "未知")
+    device = device_info.get("device", "未知")
 
     out = Path(output_dir) if output_dir else Path("output")
     out_dir = out / f"{station}{device}定值校核"
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / f"{station}{device}定值校核报告.md"
-    report_path.write_text(full_report, encoding="utf-8")
+    report_path.write_text(report, encoding="utf-8")
 
     return {
         "device_info": device_info,

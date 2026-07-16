@@ -27,7 +27,7 @@ class SettingSheetExtractor:
             model_raw=model_raw,
             kb_hint=kb_hint or "（无）",
         )
-        user = "请按 schema 输出 JSON。"
+        user = "请严格按照上面的 schema 输出合法 JSON，不要包含任何解释性文字，只输出 JSON 对象。"
         return system, user
 
     def _retry_with_feedback(self, system: str, user: str, bad_output: str) -> LLMSheetDraft:

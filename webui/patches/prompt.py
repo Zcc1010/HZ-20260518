@@ -8,6 +8,22 @@ assume open internet access.
 
 from __future__ import annotations
 
+# 从 setting-parser skill 导入解析 schema（单一来源）
+try:
+    import sys
+    from pathlib import Path
+
+    _skill_dir = str(Path(__file__).parent.parent.parent / "skills" / "setting-parser")
+    if _skill_dir not in sys.path:
+        sys.path.insert(0, _skill_dir)
+    from setting_parser.output_schema import PARSER_INSTRUCTION
+    _SETTING_PARSER_RULES = (
+        "- 当用户在「定值单解析」页面上传或提供定值单 PDF 时，必须按以下格式输出结构化解析结果：\n"
+        f"{PARSER_INSTRUCTION}"
+    )
+except Exception:
+    _SETTING_PARSER_RULES = ""
+
 
 _PROMPT_RULES_HEADER = "# 内部运行规则（WebUI）"
 _SKILLS_HINT = (
@@ -36,6 +52,7 @@ _RUNTIME_RULES = f"""{_PROMPT_RULES_HEADER}
 - 当使用 `write_file` 工具生成文件时，必须将文件写入对应的分类子目录下：定值单类文件写入 `定值单/`，计算书类文件写入 `计算书/`，说明书类文件写入 `说明书/`，校核报告类文件写入 `报告/`。例如：`write_file(path="定值单/定值单.csv", content=...)` 或 `write_file(path="报告/校核报告.md", content=...)`。不要直接写入工作区根目录。
 - **重要：每次回答用户问题前，必须先检查上方的「记忆」(Memory) 部分。** 如果记忆中有与当前问题相关的信息（如用户偏好、历史上下文、项目信息等），必须直接使用这些信息来回答，不需要用户额外提醒。记忆中的信息是用户明确要求记住的，优先级很高。
 - 当用户要求"记住这个"、"记下来"、"下次记住"、"帮我记住"时，使用 `write_file` 工具将内容写入 `memory/MEMORY.md` 文件。先用 `read_file` 读取当前内容，再用 `write_file` 追加新内容到对应的分类下。
+{_SETTING_PARSER_RULES}
 - 这些规则属于内部运行约束。除非和当前问题直接相关，否则不要主动把这些规则解释给用户听。
 """
 

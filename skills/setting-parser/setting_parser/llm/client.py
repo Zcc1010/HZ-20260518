@@ -22,17 +22,34 @@ class LLMConfig:
     @classmethod
     def from_env(cls) -> "LLMConfig":
         api_key = os.environ.get("SETTING_PARSER_LLM_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "环境变量 SETTING_PARSER_LLM_API_KEY 未设置。"
-                "请设置 API key（参考 README）。"
+        if api_key:
+            return cls(
+                api_key=api_key,
+                base_url=os.environ.get("SETTING_PARSER_LLM_BASE_URL", "https://api.openai.com/v1"),
+                model=os.environ.get("SETTING_PARSER_LLM_MODEL", "gpt-4o-mini"),
+                max_retries=int(os.environ.get("SETTING_PARSER_LLM_MAX_RETRIES", "3")),
+                timeout_s=float(os.environ.get("SETTING_PARSER_LLM_TIMEOUT", "60")),
             )
-        return cls(
-            api_key=api_key,
-            base_url=os.environ.get("SETTING_PARSER_LLM_BASE_URL", "https://api.openai.com/v1"),
-            model=os.environ.get("SETTING_PARSER_LLM_MODEL", "gpt-4o-mini"),
-            max_retries=int(os.environ.get("SETTING_PARSER_LLM_MAX_RETRIES", "3")),
-            timeout_s=float(os.environ.get("SETTING_PARSER_LLM_TIMEOUT", "60")),
+
+        # 回退：读取 nanobot 服务器配置
+        try:
+            from nanobot.config.loader import load_config
+            config = load_config()
+            model = config.agents.defaults.model
+            p = config.get_provider(model)
+            api_base = config.get_api_base(model)
+            if p and p.api_key and api_base:
+                return cls(
+                    api_key=p.api_key,
+                    base_url=api_base,
+                    model=model,
+                )
+        except Exception:
+            pass
+
+        raise ValueError(
+            "环境变量 SETTING_PARSER_LLM_API_KEY 未设置，且无法读取 nanobot 服务器配置。"
+            "请设置 API key（参考 README），或确保 nanobot config.json 中已配置 provider。"
         )
 
 
@@ -49,7 +66,7 @@ class LLMClient:
                 {"role": "user", "content": user},
             ],
         }
-        if response_format_json:
+        if response_format_json and os.environ.get("SETTING_PARSER_LLM_USE_RESPONSE_FORMAT", "").lower() in ("1", "true", "yes"):
             kwargs["response_format"] = {"type": "json_object"}
         resp = self._openai.chat.completions.create(**kwargs)
         return resp.choices[0].message.content or ""

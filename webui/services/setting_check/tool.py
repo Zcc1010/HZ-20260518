@@ -485,24 +485,37 @@ class SettingCheckGenerateTool(Tool):
 
             providers = config_data.get("providers", {})
             provider = None
-            preferred_providers = ["zhipu", "dashscope", "deepseek", "openai", "openrouter"]
+
+            # 各 provider 的合理默认模型
+            provider_default_models = {
+                "zhipu": "glm-4-flash",
+                "dashscope": "qwen-turbo",
+                "deepseek": "deepseek-chat",
+                "openai": "gpt-4o-mini",
+                "openrouter": "openai/gpt-4o-mini",
+                "custom": default_model,
+            }
+
+            preferred_providers = ["custom", "zhipu", "dashscope", "deepseek", "openai", "openrouter"]
             for name in preferred_providers:
                 p = providers.get(name, {})
                 if p.get("apiKey") or p.get("api_key"):
+                    fallback_model = provider_default_models.get(name, default_model)
                     provider = {
                         "base_url": p.get("apiBase") or p.get("base_url", ""),
                         "api_key": p.get("apiKey") or p.get("api_key", ""),
-                        "model": p.get("model", default_model),
+                        "model": p.get("model", fallback_model),
                     }
                     break
 
             if not provider:
                 for name, p in providers.items():
                     if p.get("apiKey") or p.get("api_key"):
+                        fallback_model = provider_default_models.get(name, default_model)
                         provider = {
                             "base_url": p.get("apiBase") or p.get("base_url", ""),
                             "api_key": p.get("apiKey") or p.get("api_key", ""),
-                            "model": p.get("model", default_model),
+                            "model": p.get("model", fallback_model),
                         }
                         break
 

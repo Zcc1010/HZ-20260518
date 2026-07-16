@@ -79,7 +79,7 @@ class CollectResult:
     inventory: list[dict] = field(default_factory=list)          # 台账设备列表
     real_time_status: list[dict] = field(default_factory=list)   # 运行状态
     real_time_values: list[dict] = field(default_factory=list)   # 保信定值
-    press_board: list[dict] = field(default_factory=list)        # 压板/模拟量
+    press_board: dict[str, list] = field(default_factory=lambda: {"hard_press": [], "soft_press": [], "analog": []})  # 压板/模拟量
     alarms: list[dict] = field(default_factory=list)             # 历史告警
     maintenance: list[dict] = field(default_factory=list)        # 检修记录
     # 元信息
@@ -87,6 +87,8 @@ class CollectResult:
     sources_collected: list[str] = field(default_factory=list)
     sources_missing: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    # 逐设备数据源可用性
+    device_sources: dict[str, dict[str, bool]] = field(default_factory=dict)  # {uniqueCode: {source: True/False}}
 
 
 # ── HTTP 辅助 ──
@@ -323,11 +325,10 @@ async def collect_all(
             else:
                 result.sources_missing.append("inventory")
                 result.errors.append(f"台账查询无结果: 厂站 '{station}' 未找到设备")
-                return result  # 无台账则后续无法查询
+                # 不再 early return，继续尝试其他源
         except Exception as exc:
             result.sources_missing.append("inventory")
             result.errors.append(f"台账采集失败: {exc}")
-            return result
 
         # ── 第 2 源：运行状态 ──
         try:
@@ -349,25 +350,26 @@ async def collect_all(
         # ── 并发采集每台设备的详细信息 ──
         device_details: list[dict] = []
 
-        # 先批量获取 baoXinId
-        async def _get_device_with_baoxin(dev: dict) -> dict:
-            code = dev.get("uniqueCode", "")
-            if not code:
-                return {**dev, "baoXinId": "", "detail": None}
-            bao_id, _ = await _get_basic_info(client, code)
-            detail = await _collect_device_detail(
-                client, code, dev.get("onceDeviceId", ""), bao_id,
-            )
-            return {**dev, "baoXinId": bao_id, "detail": detail}
+        if devices:
+            # 先批量获取 baoXinId
+            async def _get_device_with_baoxin(dev: dict) -> dict:
+                code = dev.get("uniqueCode", "")
+                if not code:
+                    return {**dev, "baoXinId": "", "detail": None}
+                bao_id, _ = await _get_basic_info(client, code)
+                detail = await _collect_device_detail(
+                    client, code, dev.get("onceDeviceId", ""), bao_id,
+                )
+                return {**dev, "baoXinId": bao_id, "detail": detail}
 
-        sem = asyncio.Semaphore(5)  # 限制并发数
+            sem = asyncio.Semaphore(5)  # 限制并发数
 
-        async def _collect_one(dev: dict) -> dict:
-            async with sem:
-                return await _get_device_with_baoxin(dev)
+            async def _collect_one(dev: dict) -> dict:
+                async with sem:
+                    return await _get_device_with_baoxin(dev)
 
-        tasks = [_collect_one(d) for d in devices]
-        device_details = await asyncio.gather(*tasks)
+            tasks = [_collect_one(d) for d in devices]
+            device_details = await asyncio.gather(*tasks)
 
         # ── 拆解到六源 ──
         bx_settings: list[dict] = []
@@ -386,11 +388,17 @@ async def collect_all(
             detail = dev.get("detail") or {}
             code = dev.get("uniqueCode", "")
 
+            # 记录每台设备的数据源可用性
+            dev_sources: dict[str, bool] = {}
+
             # 定值
             sx = detail.get("bx_setting")
             if sx:
                 has_settings = True
                 bx_settings.append({"uniqueCode": code, "data": sx})
+                dev_sources["real_time_values"] = True
+            else:
+                dev_sources["real_time_values"] = False
 
             # 压板
             hp = detail.get("hard_press")
@@ -401,6 +409,9 @@ async def collect_all(
                 hard_presses.append({"uniqueCode": code, "data": hp})
                 soft_presses.append({"uniqueCode": code, "data": sp})
                 analogs.append({"uniqueCode": code, "data": an})
+                dev_sources["press_board"] = True
+            else:
+                dev_sources["press_board"] = False
 
             # 告警
             hist = detail.get("history")
@@ -412,12 +423,20 @@ async def collect_all(
                     "history": hist,
                     "protect_alarm": alarm,
                 })
+                dev_sources["alarms"] = True
+            else:
+                dev_sources["alarms"] = False
 
             # 检修
             maint = detail.get("maintenance")
             if maint:
                 has_maint = True
                 all_maints.append({"uniqueCode": code, "data": maint})
+                dev_sources["maintenance"] = True
+            else:
+                dev_sources["maintenance"] = False
+
+            result.device_sources[code] = dev_sources
 
         result.real_time_values = bx_settings
         if has_settings:
@@ -467,63 +486,94 @@ def format_result_for_agent(result: CollectResult) -> str:
     lines.append("")
 
     # ── 台账 ──
-    lines.append(f"## 1. 台账 (共 {len(result.inventory)} 台装置)")
-    for i, dev in enumerate(result.inventory, 1):
-        lines.append(
-            f"  {i}. {dev.get('deviceName', '?')} | "
-            f"类型: {dev.get('protectType', '?')} | "
-            f"型号: {dev.get('protectModel', '?')} | "
-            f"套别: 第{dev.get('protectCover', '?')}套 | "
-            f"uniqueCode: {dev.get('uniqueCode', '?')}"
-        )
+    if result.inventory:
+        lines.append(f"## 1. 台账 (共 {len(result.inventory)} 台装置)")
+        for i, dev in enumerate(result.inventory, 1):
+            lines.append(
+                f"  {i}. {dev.get('deviceName', '?')} | "
+                f"类型: {dev.get('protectType', '?')} | "
+                f"型号: {dev.get('protectModel', '?')} | "
+                f"套别: 第{dev.get('protectCover', '?')}套 | "
+                f"uniqueCode: {dev.get('uniqueCode', '?')}"
+            )
+    else:
+        lines.append("## 1. 台账: ⚠ 未获取到数据")
 
     # ── 运行状态 ──
-    lines.append(f"\n## 2. 运行状态 (共 {len(result.real_time_status)} 条)")
-    for rec in result.real_time_status[:20]:
-        name = rec.get("iedName", "")
-        st = rec.get("stName", "")
-        check = rec.get("checkStatus", "")
-        oss = rec.get("ossStatus", "")
-        lines.append(f"  - {st} / {name} | 校核: {check} | 设备: {oss}")
-    if len(result.real_time_status) > 20:
-        lines.append(f"  ... 还有 {len(result.real_time_status) - 20} 条")
+    if result.real_time_status:
+        lines.append(f"\n## 2. 运行状态 (共 {len(result.real_time_status)} 条)")
+        for rec in result.real_time_status[:20]:
+            name = rec.get("iedName", "")
+            st = rec.get("stName", "")
+            check = rec.get("checkStatus", "")
+            oss = rec.get("ossStatus", "")
+            lines.append(f"  - {st} / {name} | 校核: {check} | 设备: {oss}")
+        if len(result.real_time_status) > 20:
+            lines.append(f"  ... 还有 {len(result.real_time_status) - 20} 条")
+    else:
+        lines.append("\n## 2. 运行状态: ⚠ 未获取到数据")
 
     # ── 定值 ──
-    lines.append(f"\n## 3. 保信定值 (共 {len(result.real_time_values)} 台)")
-    for item in result.real_time_values[:10]:
-        data = item.get("data") or {}
-        if isinstance(data, list):
-            lines.append(f"  uniqueCode={item['uniqueCode']}: {len(data)} 项定值")
-            for sv in data[:5]:
-                lines.append(f"    - {sv.get('name', '?')}: 当前={sv.get('value', '?')}, 标准={sv.get('stdvalue', '?')}")
-        elif isinstance(data, dict):
-            lines.append(f"  uniqueCode={item['uniqueCode']}: {json.dumps(data, ensure_ascii=False)[:200]}")
+    if result.real_time_values:
+        lines.append(f"\n## 3. 保信定值 (共 {len(result.real_time_values)} 台)")
+        for item in result.real_time_values[:10]:
+            data = item.get("data") or {}
+            if isinstance(data, list):
+                lines.append(f"  uniqueCode={item['uniqueCode']}: {len(data)} 项定值")
+                for sv in data[:5]:
+                    lines.append(f"    - {sv.get('name', '?')}: 当前={sv.get('value', '?')}, 标准={sv.get('stdvalue', '?')}")
+            elif isinstance(data, dict):
+                lines.append(f"  uniqueCode={item['uniqueCode']}: {json.dumps(data, ensure_ascii=False)[:200]}")
+    else:
+        lines.append("\n## 3. 保信定值: ⚠ 未获取到数据")
 
     # ── 压板/模拟量 ──
-    hpc = sum(1 for x in result.press_board.get("hard_press", []) if x.get("data"))
-    spc = sum(1 for x in result.press_board.get("soft_press", []) if x.get("data"))
-    anc = sum(1 for x in result.press_board.get("analog", []) if x.get("data"))
-    lines.append(f"\n## 4. 压板/模拟量 (硬压板: {hpc}台, 软压板: {spc}台, 模拟量: {anc}台)")
+    pb = result.press_board if isinstance(result.press_board, dict) else {}
+    if pb.get("hard_press") or pb.get("soft_press") or pb.get("analog"):
+        hpc = sum(1 for x in pb.get("hard_press", []) if x.get("data"))
+        spc = sum(1 for x in pb.get("soft_press", []) if x.get("data"))
+        anc = sum(1 for x in pb.get("analog", []) if x.get("data"))
+        lines.append(f"\n## 4. 压板/模拟量 (硬压板: {hpc}台, 软压板: {spc}台, 模拟量: {anc}台)")
+    else:
+        lines.append("\n## 4. 压板/模拟量: ⚠ 未获取到数据")
 
     # ── 告警 ──
-    lines.append(f"\n## 5. 告警 (共 {len(result.alarms)} 台装置有告警数据)")
-    for item in result.alarms[:10]:
-        hist = item.get("history") or {}
-        pal = item.get("protect_alarm") or {}
-        hist_count = len(hist.get("list", hist)) if isinstance(hist, dict) else 0
-        lines.append(f"  uniqueCode={item['uniqueCode']}: history={hist_count}条, protect_alarm={'有' if pal else '无'}")
+    if result.alarms:
+        lines.append(f"\n## 5. 告警 (共 {len(result.alarms)} 台装置有告警数据)")
+        for item in result.alarms[:10]:
+            hist = item.get("history") or {}
+            pal = item.get("protect_alarm") or {}
+            hist_count = len(hist.get("list", hist)) if isinstance(hist, dict) else 0
+            lines.append(f"  uniqueCode={item['uniqueCode']}: history={hist_count}条, protect_alarm={'有' if pal else '无'}")
+    else:
+        lines.append("\n## 5. 告警: ⚠ 未获取到数据")
 
     # ── 检修 ──
-    lines.append(f"\n## 6. 检修记录 (共 {len(result.maintenance)} 台装置)")
-    for item in result.maintenance[:10]:
-        data = item.get("data") or {}
-        if isinstance(data, dict):
-            records = data.get("list", data.get("records", []))
-            lines.append(f"  uniqueCode={item['uniqueCode']}: {len(records)} 条检修记录")
+    if result.maintenance:
+        lines.append(f"\n## 6. 检修记录 (共 {len(result.maintenance)} 台装置)")
+        for item in result.maintenance[:10]:
+            data = item.get("data") or {}
+            if isinstance(data, dict):
+                records = data.get("list", data.get("records", []))
+                lines.append(f"  uniqueCode={item['uniqueCode']}: {len(records)} 条检修记录")
+    else:
+        lines.append("\n## 6. 检修记录: ⚠ 未获取到数据")
 
-    lines.append(f"\n[六源数据采集完成。已采集: {len(result.sources_collected)}/6 源。")
+    # ── 逐设备数据源可用性 ──
+    if result.device_sources:
+        lines.append("\n## 逐设备数据源可用性")
+        for code, sources in result.device_sources.items():
+            missing = [k for k, v in sources.items() if not v]
+            if missing:
+                lines.append(f"  ⚠ {code}: 缺失 {', '.join(missing)}")
+
+    # ── 总结 ──
+    collected = len(result.sources_collected)
+    total = 6
+    lines.append(f"\n[六源数据采集完成。已采集: {collected}/{total} 源。")
     if result.sources_missing:
-        lines.append(f"⚠ 缺失: {', '.join(result.sources_missing)}。请确认缺失数据源是否因厂站无对应数据。]")
+        lines.append(f"⚠ 缺失: {', '.join(result.sources_missing)}。")
+        lines.append("注意：缺失数据源对应的评估规则将无法检测，评估结果可能不完整。]")
     else:
         lines.append("六源齐全，可以进入风险评估阶段。]")
 

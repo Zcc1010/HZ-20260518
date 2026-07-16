@@ -83,6 +83,7 @@
     "disconnected": "未连接",
     "hint": "Enter 发送 · Shift+Enter 换行",
     "uploadAttachment": "上传附件",
+    "dropFilesHere": "拖放文件到此处",
     "showToolMessages": "显示工具调用过程",
     "hideToolMessages": "隐藏工具调用过程",
     "uploading": "上传中...",

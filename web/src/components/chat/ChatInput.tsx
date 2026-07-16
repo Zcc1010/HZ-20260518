@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useLayoutEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Send, Square, Wifi, WifiOff, Paperclip, X, Loader2, ImageIcon, FileText, Menu, Check } from "lucide-react";
+import { Send, Square, Wifi, WifiOff, Paperclip, X, Loader2, ImageIcon, FileText, Menu, Check, Upload } from "lucide-react";
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
@@ -45,8 +45,10 @@ export function ChatInput({
   const isMobile = useIsMobile();
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
 
   const MAX_TEXTAREA_H = 240;
   useLayoutEffect(() => {
@@ -88,6 +90,43 @@ export function ChatInput({
       e.preventDefault();
       const files = fileItems.map((i) => i.getAsFile()).filter(Boolean) as File[];
       handleFilesSelected(files);
+    },
+    [handleFilesSelected]
+  );
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.types.includes("Files")) {
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      dragCounterRef.current = 0;
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) {
+        handleFilesSelected(files);
+      }
     },
     [handleFilesSelected]
   );
@@ -136,10 +175,24 @@ export function ChatInput({
   return (
     <div className="px-4 pb-4 pt-2">
       <div className="w-full">
-        <div className={cn(
-          "relative flex flex-col rounded-2xl border bg-background/90 backdrop-blur-xl shadow-lg transition-all",
-          isWaiting ? "border-primary/40" : "focus-within:border-primary/60 focus-within:shadow-xl"
-        )}>
+        <div
+          className={cn(
+            "relative flex flex-col rounded-2xl border bg-background/90 backdrop-blur-xl shadow-lg transition-all",
+            isWaiting ? "border-primary/40" : "focus-within:border-primary/60 focus-within:shadow-xl",
+            isDragging && "border-primary ring-2 ring-primary/30"
+          )}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
+          {/* Drop overlay */}
+          {isDragging && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl bg-background/80 backdrop-blur-sm border-2 border-dashed border-primary">
+              <Upload className="h-8 w-8 text-primary mb-2" />
+              <span className="text-sm font-medium text-primary">{t("chat.dropFilesHere")}</span>
+            </div>
+          )}
           {/* Attachment chips */}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-4 pt-3">

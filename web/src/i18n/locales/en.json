@@ -80,6 +80,7 @@
     "disconnected": "Disconnected",
     "hint": "Enter to send · Shift+Enter for new line",
     "uploadAttachment": "Upload Attachment",
+    "dropFilesHere": "Drop files here",
     "showToolMessages": "Show tool call details",
     "hideToolMessages": "Hide tool call details",
     "uploading": "Uploading...",

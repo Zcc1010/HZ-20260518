@@ -535,7 +535,7 @@ class SettingCheckGenerateTool(Tool):
                 model=model,
                 timeout=180,
                 max_retries=3,
-                enable_thinking=True,
+                enable_thinking=False,
             )
 
             def llm_call(prompt: str) -> str:
@@ -549,6 +549,7 @@ class SettingCheckGenerateTool(Tool):
                 return response.content
 
             # 运行 pipeline
+            logger.info("[setting_check_generate] 开始运行校核 pipeline, workspace={}", workspace)
             result = run_pipeline(
                 setting_paths=[str(p) for p in setting_paths],
                 calc_paths=[str(p) for p in calc_paths],

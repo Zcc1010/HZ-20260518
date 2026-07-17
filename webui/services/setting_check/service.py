@@ -223,7 +223,7 @@ def execute_setting_check(
         model=model,
         timeout=180,
         max_retries=3,
-        enable_thinking=True,
+        enable_thinking=False,
     )
 
     def llm_call(prompt: str) -> str:

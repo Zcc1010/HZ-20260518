@@ -30,7 +30,7 @@ class LLMClient:
         api_key: str,
         timeout: int = 60,
         max_retries: int = 3,
-        enable_thinking: bool = True,
+        enable_thinking: bool = False,
     ):
         self.api_url = api_url
         self.api_key = api_key

@@ -1385,15 +1385,29 @@ def render_briefing_md(
     intv: IntervalAssessment,
     meta: dict[str, Any],
 ) -> str:
-    """按间隔级输出 Markdown 简报。"""
+    """按间隔级输出 Markdown 简报（严格对齐客户模板）。"""
     lvl = intv.interval_final_level
     icon = LEVEL_EMOJI[lvl]
     prefix = "【危急预警】" if lvl == "危急" else f"【{lvl}】"
 
     lines: list[str] = []
-    lines.append(f"{prefix} 间隔风险简报")
+    lines.append(f"{prefix} 风险简报")
     lines.append(f"● 风险等级：{icon} {lvl}")
-    lines.append(f"● 间隔：{intv.station} → {intv.primary_device}")
+
+    # 影响范围：厂站 → 间隔/线路 → 保护装置（三级格式）
+    if intv.sets:
+        for s in intv.sets:
+            set_label = f"第{s.set_index}套" if s.set_index else "非独立套"
+            # 尝试从 rule_hits 中获取装置型号
+            model = ""
+            for h in s.rule_hits:
+                if h.detail and h.detail.get("model"):
+                    model = h.detail["model"]
+                    break
+            model_str = f" {model}" if model else ""
+            lines.append(f"● 影响范围：{intv.station} → {intv.primary_device} → {set_label}{model_str}")
+    else:
+        lines.append(f"● 影响范围：{intv.station} → {intv.primary_device}")
 
     # v3: 时间窗口显式标注
     if intv.sets:
@@ -1411,7 +1425,6 @@ def render_briefing_md(
         )
 
     if intv.in_maintenance:
-        recs_text = "、".join(r.work_type for r in intv.maintenance_records)
         m_window = "; ".join(
             f"{r.start_time}~{r.end_time} {r.work_type}"
             for r in intv.maintenance_records
@@ -1792,11 +1805,15 @@ def main():
     results = run_assessment(pkg, station=args.station)
     print(f"评估完成：{len(results)} 间隔")
 
-    # Markdown 主简报
+    # Markdown 主简报（严格对齐客户模板格式）
     if not args.briefing_only:
         with (out_dir / "briefing.md").open("w", encoding="utf-8") as f:
-            f.write(f"# 风险简报 · {stamp}（按间隔聚合）\n\n")
-            f.write(f"评估目标：{len(results)} 间隔\n\n")
+            # 统计异常装置数
+            abnormal_count = sum(1 for r in results if r.interval_final_level != "提示")
+            f.write(f"═══════════════════════════════════════════════\n")
+            f.write(f"  {args.station or '全网'} / {now.strftime('%Y-%m-%d %H:%M')} 风险简报（共 {abnormal_count} 套异常装置）\n")
+            f.write(f"═══════════════════════════════════════════════\n\n")
+
             by_level = defaultdict(list)
             for r in results:
                 by_level[r.interval_final_level].append(r)
@@ -1804,11 +1821,15 @@ def main():
                 group = by_level.get(lvl, [])
                 if not group:
                     continue
-                f.write(f"\n## 【{lvl}】预警（{len(group)} 间隔）\n\n")
+                icon = LEVEL_EMOJI[lvl]
+                f.write(f"【{lvl}预警】（{len(group)} 套）\n\n")
                 for r in group:
-                    f.write("---\n\n")
                     f.write(render_briefing_md(r, pkg.meta))
                     f.write("\n\n")
+
+            f.write(f"═══════════════════════════════════════════════\n")
+            f.write(f"  数据完整度：{len(results)} 间隔\n")
+            f.write(f"═══════════════════════════════════════════════\n")
         print(f"→ Markdown: {out_dir / 'briefing.md'}")
 
     # HTML 活页 + JSON 推理链

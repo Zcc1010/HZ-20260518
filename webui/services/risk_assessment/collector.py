@@ -479,9 +479,9 @@ def format_result_for_agent(result: CollectResult) -> str:
     ]
 
     if result.sources_missing:
-        lines.append(f"⚠ 缺失数据源: {', '.join(result.sources_missing)}")
-    if result.errors:
-        lines.append(f"采集错误: {'; '.join(result.errors)}")
+        lines.append(f"缺失数据源: {', '.join(result.sources_missing)}")
+    # 不再输出具体错误信息，避免在报告中显示"告警请求异常"等技术细节
+    # 错误信息仅记录到日志，对用户统一显示"无数据"
 
     lines.append("")
 
@@ -497,7 +497,7 @@ def format_result_for_agent(result: CollectResult) -> str:
                 f"uniqueCode: {dev.get('uniqueCode', '?')}"
             )
     else:
-        lines.append("## 1. 台账: ⚠ 未获取到数据")
+        lines.append("## 1. 台账: 无数据")
 
     # ── 运行状态 ──
     if result.real_time_status:
@@ -511,7 +511,7 @@ def format_result_for_agent(result: CollectResult) -> str:
         if len(result.real_time_status) > 20:
             lines.append(f"  ... 还有 {len(result.real_time_status) - 20} 条")
     else:
-        lines.append("\n## 2. 运行状态: ⚠ 未获取到数据")
+        lines.append("\n## 2. 运行状态: 无数据")
 
     # ── 定值 ──
     if result.real_time_values:
@@ -525,7 +525,7 @@ def format_result_for_agent(result: CollectResult) -> str:
             elif isinstance(data, dict):
                 lines.append(f"  uniqueCode={item['uniqueCode']}: {json.dumps(data, ensure_ascii=False)[:200]}")
     else:
-        lines.append("\n## 3. 保信定值: ⚠ 未获取到数据")
+        lines.append("\n## 3. 保信定值: 无数据")
 
     # ── 压板/模拟量 ──
     pb = result.press_board if isinstance(result.press_board, dict) else {}
@@ -535,7 +535,7 @@ def format_result_for_agent(result: CollectResult) -> str:
         anc = sum(1 for x in pb.get("analog", []) if x.get("data"))
         lines.append(f"\n## 4. 压板/模拟量 (硬压板: {hpc}台, 软压板: {spc}台, 模拟量: {anc}台)")
     else:
-        lines.append("\n## 4. 压板/模拟量: ⚠ 未获取到数据")
+        lines.append("\n## 4. 压板/模拟量: 无数据")
 
     # ── 告警 ──
     if result.alarms:
@@ -546,7 +546,7 @@ def format_result_for_agent(result: CollectResult) -> str:
             hist_count = len(hist.get("list", hist)) if isinstance(hist, dict) else 0
             lines.append(f"  uniqueCode={item['uniqueCode']}: history={hist_count}条, protect_alarm={'有' if pal else '无'}")
     else:
-        lines.append("\n## 5. 告警: ⚠ 未获取到数据")
+        lines.append("\n## 5. 告警: 无数据")
 
     # ── 检修 ──
     if result.maintenance:
@@ -557,7 +557,7 @@ def format_result_for_agent(result: CollectResult) -> str:
                 records = data.get("list", data.get("records", []))
                 lines.append(f"  uniqueCode={item['uniqueCode']}: {len(records)} 条检修记录")
     else:
-        lines.append("\n## 6. 检修记录: ⚠ 未获取到数据")
+        lines.append("\n## 6. 检修记录: 无数据")
 
     # ── 逐设备数据源可用性 ──
     if result.device_sources:
@@ -565,14 +565,14 @@ def format_result_for_agent(result: CollectResult) -> str:
         for code, sources in result.device_sources.items():
             missing = [k for k, v in sources.items() if not v]
             if missing:
-                lines.append(f"  ⚠ {code}: 缺失 {', '.join(missing)}")
+                lines.append(f"  {code}: 缺失 {', '.join(missing)}")
 
     # ── 总结 ──
     collected = len(result.sources_collected)
     total = 6
     lines.append(f"\n[六源数据采集完成。已采集: {collected}/{total} 源。")
     if result.sources_missing:
-        lines.append(f"⚠ 缺失: {', '.join(result.sources_missing)}。")
+        lines.append(f"缺失: {', '.join(result.sources_missing)}。")
         lines.append("注意：缺失数据源对应的评估规则将无法检测，评估结果可能不完整。]")
     else:
         lines.append("六源齐全，可以进入风险评估阶段。]")

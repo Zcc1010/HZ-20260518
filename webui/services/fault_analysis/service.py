@@ -1032,9 +1032,9 @@ class FaultAnalysisService:
                     print(f"  [解压失败] {arc.name}: {e}")
             return found_new
 
-        # 复制 input_dir 中的压缩包到 output_dir
+        # 复制 input_dir 中的压缩包到 output_dir（递归查找，支持子目录如 保护录波/）
         import shutil as _shutil
-        for f in input_dir.iterdir():
+        for f in input_dir.rglob("*"):
             if f.is_file() and f.suffix.lower() in archive_exts:
                 _shutil.copy2(f, output_dir / f.name)
 
@@ -1043,9 +1043,9 @@ class FaultAnalysisService:
             if not _extract_once():
                 break
 
-        # 如果 input_dir 中直接有 cfg/dat/hdr（非压缩包上传），复制到 output_dir
+        # 如果 input_dir 中直接有 cfg/dat/hdr（非压缩包上传），复制到 output_dir（递归）
         for ext in ['*.cfg', '*.CFG', '*.dat', '*.DAT', '*.hdr', '*.HDR']:
-            for f in input_dir.glob(ext):
+            for f in input_dir.rglob(ext):
                 dest = output_dir / f.name
                 if not dest.exists():
                     _shutil.copy2(f, dest)

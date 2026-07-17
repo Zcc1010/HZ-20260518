@@ -339,9 +339,8 @@ async def download_and_create_job(
             # 如果 md 文件中没有提取到，使用前端传入的 equipmentName
             if not equipment_name and equipment_name_param:
                 equipment_name = equipment_name_param
-            # 收集所有文件
-            files_list = [f for f in Path(save_dir).rglob("*") if f.is_file()]
-            if not files_list:
+            # 检查下载目录是否有文件
+            if not any(Path(save_dir).iterdir()):
                 raise FileNotFoundError("下载目录中没有找到文件")
 
             # 创建 job 目录结构
@@ -352,12 +351,14 @@ async def download_and_create_job(
             input_dir = job_dir / "input"
             input_dir.mkdir(exist_ok=True)
 
-            # 复制文件到 input 目录
-            for f in files_list:
-                dest = input_dir / f.name
-                shutil.copy2(str(f), str(dest))
+            # 保留目录结构复制到 input 目录（不拍平，保持 保护录波/故障录波 等子目录）
+            for item in Path(save_dir).iterdir():
+                if item.is_dir():
+                    shutil.copytree(str(item), str(input_dir / item.name))
+                else:
+                    shutil.copy2(str(item), str(input_dir / item.name))
 
-            # 写入 DB
+            # 写入 DB（device_type/voltage_level 留空，由 parse_folder_name 自动推断）
             from webui.services.agentplayground.db import utcnow_iso
             now = utcnow_iso()
             with service._conn() as conn:
@@ -365,7 +366,7 @@ async def download_and_create_job(
                     """INSERT INTO jobs (id, status, created_at, updated_at, station, device, device_type, voltage_level, folder_path, external_id)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (job_id, "processing", now, now,
-                     equipment_name, equipment_name, "线路", "110kV",
+                     equipment_name, equipment_name, "", "",
                      str(input_dir), event_id),
                 )
 
@@ -380,7 +381,7 @@ async def download_and_create_job(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"下载失败: {e}")
 
-    # 启动后台分析任务（不阻塞响应）
-    asyncio.create_task(service._run_analysis(job_id, input_dir, "线路", "110kV"))
+    # 启动后台分析任务（device_type/voltage_level 留空，由 pipeline 自动推断）
+    asyncio.create_task(service._run_analysis(job_id, input_dir, "", ""))
 
     return FaultAnalysisJobInfo(**job)

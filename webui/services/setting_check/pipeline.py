@@ -4,6 +4,7 @@ from pathlib import Path
 
 from webui.services.setting_check.converter import convert_to_md
 from webui.services.setting_check.principle_checker import build_check_prompt, build_cleanup_prompt
+from webui.services.setting_check.report_header import generate_header
 from webui.services.setting_check.router import (
     load_rules_content,
     load_key_constraints,
@@ -235,7 +236,22 @@ def run_pipeline(
         if val and (not device_info.get(key)):
             device_info[key] = val
 
-    # Step 7: 写入文件
+    # Step 7: 生成报告头部（基本信息）
+    header = generate_header(
+        station=device_info.get("station", ""),
+        device=device_info.get("device", ""),
+        model=device_info.get("model", ""),
+        version=device_info.get("version", ""),
+        setting_file=", ".join(setting_names),
+        calc_file=", ".join(calc_names),
+        rules_names=rules_names,
+        device_type=device_type,
+        voltage_level=voltage_level,
+    )
+
+    # Step 8: 拼接头部 + 报告正文，写入文件
+    full_report = header + report
+
     station = device_info.get("station", "未知")
     device = device_info.get("device", "未知")
 
@@ -243,7 +259,7 @@ def run_pipeline(
     out_dir = out / f"{station}{device}定值校核"
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / f"{station}{device}定值校核报告.md"
-    report_path.write_text(report, encoding="utf-8")
+    report_path.write_text(full_report, encoding="utf-8")
 
     return {
         "device_info": device_info,

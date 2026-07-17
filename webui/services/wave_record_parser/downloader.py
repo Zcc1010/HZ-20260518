@@ -162,15 +162,7 @@ class EventDownloader:
         # 从详情中提取事件信息（用于生成 md）
         event_info = detail if isinstance(detail, dict) else {}
 
-        # 确定目录名
-        equipment_name = _sanitize_filename(
-            event_info.get("equipmentName", "") or f"event_{event_id}"
-        )
-        save_dir = os.path.join(output_dir, equipment_name)
-        os.makedirs(save_dir, exist_ok=True)
-
-        # ---- 下载保护录波 (ZWAV) ----
-        protection_dir = os.path.join(save_dir, "保护录波")
+        # 预取保护录波列表，从 shortName 推断设备文件夹名
         wave_list: list[dict] = detail.get("list") or detail.get("data", {}).get("list") or []
         sequences = detail.get("data", {}).get("sequences", [])
         seq_waves: list[dict] = []
@@ -179,6 +171,32 @@ class EventDownloader:
                 for equip in equipments:
                     for w in equip.get("waves", []):
                         seq_waves.append(w)
+
+        # 从 shortName 提取设备文件夹名（与上传压缩包命名一致）
+        # shortName 示例: "安徽.屏显变_220kV母线第一套保护PCS915D_2026-06-18 08_41_01.587.ZWAV"
+        # parse_folder_name.py 期望的文件夹名: "安徽.屏显变_220kV母线第一套保护PCS915D_2026-06-18 08_41_01.587"
+        folder_from_shortname = ""
+        for w in wave_list + seq_waves:
+            sn = w.get("shortName", "")
+            if sn:
+                # 去掉 .ZWAV 后缀作为设备文件夹名
+                folder_from_shortname = sn
+                if folder_from_shortname.upper().endswith(".ZWAV"):
+                    folder_from_shortname = folder_from_shortname[:-5]
+                break
+
+        # 确定目录名：优先用 shortName 推断的名称（与 parse_folder_name 命名一致）
+        if folder_from_shortname:
+            equipment_name = _sanitize_filename(folder_from_shortname)
+        else:
+            equipment_name = _sanitize_filename(
+                event_info.get("equipmentName", "") or f"event_{event_id}"
+            )
+        save_dir = os.path.join(output_dir, equipment_name)
+        os.makedirs(save_dir, exist_ok=True)
+
+        # ---- 下载保护录波 (ZWAV) ----
+        protection_dir = os.path.join(save_dir, "保护录波")
 
         # 合并去重
         seen: set[str] = set()

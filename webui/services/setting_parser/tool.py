@@ -92,100 +92,132 @@ class SettingParseDeviceTool(Tool):
                     f"未找到设备：{device_name}，请确认设备名称是否正确。"
                 )
 
-            # 搜索结果较多时记录日志
-            if len(records) > 1:
-                logger.info("Multiple devices found ({}), using first: {}", len(records), records[0].get("onceDeviceName"))
+            logger.info("[setting_parse_device] 找到 {} 个设备，逐一处理", len(records))
 
-            # 取第一个匹配设备
-            device = records[0]
-            unique_code = device.get("uniqueCode", "")
-            actual_name = device.get("onceDeviceName", device_name)
-            station = device.get("stName", "")
+            # 2. 逐一处理每个匹配设备
+            results: list[str] = []
+            for idx, device in enumerate(records):
+                actual_name = device.get("onceDeviceName", device_name)
+                station = device.get("stName", "")
+                cover = device.get("protectCover", "")
+                cover_label = f"第{cover}套" if cover else ""
+                model = device.get("protectModel", "")
+                unique_code = device.get("uniqueCode", "")
 
-            if not unique_code:
-                return f"设备 {actual_name} 缺少 uniqueCode，无法查询定值单。"
+                header_parts = [actual_name]
+                if station:
+                    header_parts.append(station)
+                if cover_label:
+                    header_parts.append(cover_label)
+                if model:
+                    header_parts.append(model)
+                header = " | ".join(header_parts)
 
-            # 2. 获取定值单详情
-            logger.info("[setting_parse_device] 获取设备详情: uniqueCode={}", unique_code)
-            detail_resp = await client.get(f"{LEDGER_API}/getDzDetailByUniqueCode/{unique_code}")
-            detail_resp.raise_for_status()
-            detail_data = detail_resp.json().get("data", {})
-            logger.info("[setting_parse_device] 设备详情获取完成, settingValueType={}", detail_data.get("dingZhiDetail", [{}])[0].get("settingValueType", "") if isinstance(detail_data, dict) else "")
+                if not unique_code:
+                    results.append(f"=== {header} ===\n缺少 uniqueCode，无法查询定值单。")
+                    continue
 
-            detail_list = detail_data.get("dingZhiDetail", []) if isinstance(detail_data, dict) else []
-            equipment = detail_list[0] if detail_list else (detail_data if isinstance(detail_data, dict) else {})
+                try:
+                    result = await self._process_single_device(client, device, device_name)
+                    results.append(f"=== {header} ===\n{result}")
+                except Exception as exc:
+                    logger.error("[setting_parse_device] 处理设备 {} 失败: {}", actual_name, exc)
+                    results.append(f"=== {header} ===\n定值单解析失败：{exc}")
 
-            pdf_file = detail_data.get("pdfFileName", "") or ""
-            setting_code = equipment.get("settingValueCode", "") or ""
-            setting_type = str(equipment.get("settingValueType", "") or "")
+            if not results:
+                return f"设备 {device_name} 的定值单解析均失败。"
 
-            # 3. type 0 或类型未知：尝试获取定值单PDF文件
-            if setting_type == "0" or not setting_type:
-                # 尝试220kV定值单API（需要 settingValueCode）
-                if setting_code:
-                    try:
-                        pdf_url = f"{BASE_URL}/dingzhi/get220kVSettingBookFilePdfX"
-                        logger.info("[setting_parse_device] 尝试220kV API: settingCode={}", setting_code)
-                        pdf_resp = await client.post(pdf_url, json=[setting_code], timeout=30)
-                        logger.info("[setting_parse_device] 220kV API 响应: status={}, size={}", pdf_resp.status_code, len(pdf_resp.content))
-                        if pdf_resp.status_code == 200 and len(pdf_resp.content) > 100:
-                            result = await self._parse_pdf_content(
-                                pdf_resp.content, f"{actual_name}_定值单.pdf", actual_name, station,
-                                f"定值系统（220kV）",
-                            )
-                            if result:
-                                return result
-                        else:
-                            logger.warning("[setting_parse_device] 220kV API 返回无效: status={}, size={}",
-                                           pdf_resp.status_code, len(pdf_resp.content))
-                    except Exception as exc:
-                        logger.warning("[setting_parse_device] 220kV API 失败: {}", exc)
-                else:
-                    logger.info("[setting_parse_device] 设备 {} 无 settingValueCode，跳过220kV API", actual_name)
+            if len(results) == 1:
+                # 单设备：去掉头部的 === ... === 行
+                return results[0].split("\n", 1)[-1] if results[0].startswith("===") else results[0]
 
-                return (
-                    f"设备 {actual_name}（{station}）在定值系统中未找到定值单PDF文件，无法自动解析。"
-                )
+            # 多设备：返回所有结果
+            return f"找到 {len(results)} 个设备的定值单：\n\n" + "\n\n---\n\n".join(results)
 
-            # 4. type 1/2：构造下载 URL
-            download_url = _build_setting_pdf_url(pdf_file, setting_code, setting_type)
-            if not download_url:
-                logger.warning(
-                    "[setting_parse_device] 无法构造下载URL: device={}, pdfFile={}, settingCode={}, settingType={}",
-                    actual_name, pdf_file, setting_code, setting_type,
-                )
-                return (
-                    f"设备 {actual_name}（{station}）无法构造定值单下载链接。"
-                )
+    async def _process_single_device(
+        self, client: httpx.AsyncClient, device: dict, fallback_name: str,
+    ) -> str:
+        """处理单个设备的定值单下载和解析。"""
+        unique_code = device.get("uniqueCode", "")
+        actual_name = device.get("onceDeviceName", fallback_name)
+        station = device.get("stName", "")
 
-            # 5. 下载文件
-            logger.info("Downloading setting sheet from: {}", download_url)
-            try:
-                file_resp = await client.get(download_url, follow_redirects=True)
-                file_resp.raise_for_status()
-            except Exception as exc:
-                return f"定值单文件下载失败：{exc}"
+        # 1. 获取定值单详情
+        logger.info("[setting_parse_device] 获取设备详情: {} uniqueCode={}", actual_name, unique_code)
+        detail_resp = await client.get(f"{LEDGER_API}/getDzDetailByUniqueCode/{unique_code}")
+        detail_resp.raise_for_status()
+        detail_data = detail_resp.json().get("data", {})
+        logger.info("[setting_parse_device] 设备详情获取完成, settingValueType={}", detail_data.get("dingZhiDetail", [{}])[0].get("settingValueType", "") if isinstance(detail_data, dict) else "")
 
-            content_type = file_resp.headers.get("content-type", "")
-            content = file_resp.content
+        detail_list = detail_data.get("dingZhiDetail", []) if isinstance(detail_data, dict) else []
+        equipment = detail_list[0] if detail_list else (detail_data if isinstance(detail_data, dict) else {})
 
-            if not content or len(content) < 100:
-                return f"定值单文件内容为空或过小（{len(content)} bytes），可能链接无效。\n下载地址：{download_url}"
+        pdf_file = detail_data.get("pdfFileName", "") or ""
+        setting_code = equipment.get("settingValueCode", "") or ""
+        setting_type = str(equipment.get("settingValueType", "") or "")
 
-            # 确定文件扩展名
-            if "pdf" in content_type or download_url.endswith(".pdf"):
-                ext = ".pdf"
-            elif "excel" in content_type or "spreadsheet" in content_type:
-                ext = ".xlsx"
+        # 2. type 0 或类型未知：尝试获取定值单PDF文件
+        if setting_type == "0" or not setting_type:
+            if setting_code:
+                try:
+                    pdf_url = f"{BASE_URL}/dingzhi/get220kVSettingBookFilePdfX"
+                    logger.info("[setting_parse_device] 尝试220kV API: settingCode={}", setting_code)
+                    pdf_resp = await client.post(pdf_url, json=[setting_code], timeout=30)
+                    logger.info("[setting_parse_device] 220kV API 响应: status={}, size={}", pdf_resp.status_code, len(pdf_resp.content))
+                    if pdf_resp.status_code == 200 and len(pdf_resp.content) > 100:
+                        result = await self._parse_pdf_content(
+                            pdf_resp.content, f"{actual_name}_定值单.pdf", actual_name, station,
+                            "定值系统（220kV）",
+                        )
+                        if result:
+                            return result
+                    else:
+                        logger.warning("[setting_parse_device] 220kV API 返回无效: status={}, size={}",
+                                       pdf_resp.status_code, len(pdf_resp.content))
+                except Exception as exc:
+                    logger.warning("[setting_parse_device] 220kV API 失败: {}", exc)
             else:
-                ext = ".pdf"  # 默认
+                logger.info("[setting_parse_device] 设备 {} 无 settingValueCode，跳过220kV API", actual_name)
 
-            # 6. 解析定值单 PDF
-            file_name = f"{actual_name}_定值单{ext}"
-            return await self._parse_pdf_content(
-                content, file_name, actual_name, station,
-                self._source_label(setting_type),
+            return f"设备 {actual_name}（{station}）在定值系统中未找到定值单PDF文件，无法自动解析。"
+
+        # 3. type 1/2：构造下载 URL
+        download_url = _build_setting_pdf_url(pdf_file, setting_code, setting_type)
+        if not download_url:
+            logger.warning(
+                "[setting_parse_device] 无法构造下载URL: device={}, pdfFile={}, settingCode={}, settingType={}",
+                actual_name, pdf_file, setting_code, setting_type,
             )
+            return f"设备 {actual_name}（{station}）无法构造定值单下载链接。"
+
+        # 4. 下载文件
+        logger.info("Downloading setting sheet from: {}", download_url)
+        try:
+            file_resp = await client.get(download_url, follow_redirects=True)
+            file_resp.raise_for_status()
+        except Exception as exc:
+            return f"定值单文件下载失败：{exc}"
+
+        content_type = file_resp.headers.get("content-type", "")
+        content = file_resp.content
+
+        if not content or len(content) < 100:
+            return f"定值单文件内容为空或过小（{len(content)} bytes），可能链接无效。\n下载地址：{download_url}"
+
+        # 确定文件扩展名
+        if "pdf" in content_type or download_url.endswith(".pdf"):
+            ext = ".pdf"
+        elif "excel" in content_type or "spreadsheet" in content_type:
+            ext = ".xlsx"
+        else:
+            ext = ".pdf"
+
+        # 5. 解析定值单 PDF
+        file_name = f"{actual_name}_定值单{ext}"
+        return await self._parse_pdf_content(
+            content, file_name, actual_name, station,
+            self._source_label(setting_type),
+        )
 
     async def _parse_pdf_content(
         self, content: bytes, file_name: str, device_name: str, station: str, source_label: str,

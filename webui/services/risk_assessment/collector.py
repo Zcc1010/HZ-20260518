@@ -129,7 +129,7 @@ async def _collect_inventory(
         data = await _post_json(
             client,
             f"{LEDGER_API}/getPageList",
-            {"stName": station, "limit": PAGE_SIZE, "page": page},
+            {"stName": station, "limit": PAGE_SIZE, "page": page, "includeOutSysDevice": "0"},
         )
         if data is None:
             break

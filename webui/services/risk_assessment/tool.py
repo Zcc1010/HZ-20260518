@@ -46,7 +46,8 @@ class RiskAssessmentCollectTool(Tool):
             "六源数据采集工具 — 一次性获取风险评估所需的全部数据。"
             "调用此工具后，Agent 无需再逐一调用 ledger_query 和 status_query。\n"
             "参数：stName(厂站名,必填), voltageTypes(电压等级,可选), protectTypes(保护类型,可选)。\n"
-            "返回值包含六源完整数据：台账、运行状态、定值、压板/模拟量、告警、检修记录。"
+            "返回值包含六源完整数据：台账、运行状态、保信定值（装置运行时的实时定值数据，不是定值单文档）、压板/模拟量、告警、检修记录。\n"
+            "注意：此工具采集的是装置运行时的「定值数据」，不是「定值单」PDF文档。如需解析定值单文档，请使用 setting_parse_device 工具。"
         )
 
     @property

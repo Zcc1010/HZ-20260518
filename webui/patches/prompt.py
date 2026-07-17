@@ -20,6 +20,10 @@ try:
     _SETTING_PARSER_RULES = (
         "- 当用户在「定值单解析」页面上传或提供定值单 PDF 时，必须按以下格式输出结构化解析结果：\n"
         f"{PARSER_INSTRUCTION}"
+        "\n- **定值单 vs 定值 严格区分（非常重要）：**\n"
+        "  - 「定值单」= PDF/Excel 文档，是调度下发的整定通知单。用户说「解析定值单」「查看定值单」「下载定值单」时，使用 `setting_parse_device` 工具（参数：deviceName 设备名, stName 厂站名可选）。该工具会自动从台账查询、下载 PDF、提取文本并返回内容。\n"
+        "  - 「定值」= 装置运行时的实时定值数据（当前值/标准值/上下限）。用户说「查看定值」「定值数据」时，使用 `risk_assessment_collect` 工具采集保信定值。\n"
+        "  - 两者完全不同，绝对不能混淆。解析定值单 ≠ 查询定值。"
     )
 except Exception:
     _SETTING_PARSER_RULES = ""

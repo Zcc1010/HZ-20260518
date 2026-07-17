@@ -50,7 +50,7 @@ def strip_placeholders(text: str) -> str:
 
 def read_file_auto_encode(file_path: str) -> Optional[str]:
     """
-    自动检测编码读取文件。UTF-8 优先，失败尝试 GB18030。
+    自动检测编码读取文件。GB18030 优先（电力系统 HDR 文件常用），失败尝试 UTF-8。
 
     Args:
         file_path: 文件路径
@@ -62,7 +62,7 @@ def read_file_auto_encode(file_path: str) -> Optional[str]:
     if not path.exists():
         return None
 
-    for encoding in ("utf-8", "gb18030"):
+    for encoding in ("gb18030", "utf-8"):
         try:
             return path.read_text(encoding=encoding)
         except (UnicodeDecodeError, UnicodeError):
@@ -232,6 +232,20 @@ def collect_device_files(
     inf_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".inf"]
     cfg_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".cfg"]
     dat_files = [f for f in device_dir.iterdir() if f.suffix.lower() == ".dat"]
+
+    # 如果设备目录中没有 rms/events CSV，尝试在兄弟目录 rms/ 中查找
+    if not rms_files or not events_files:
+        rms_dir = device_dir.parent / "rms"
+        if rms_dir.is_dir() and hdr_files:
+            hdr_stem = hdr_files[0].stem
+            if not rms_files:
+                candidate = rms_dir / f"{hdr_stem}.rms.csv"
+                if candidate.exists():
+                    rms_files = [candidate]
+            if not events_files:
+                candidate = rms_dir / f"{hdr_stem}.events.csv"
+                if candidate.exists():
+                    events_files = [candidate]
 
     return DeviceFiles(
         station=station,

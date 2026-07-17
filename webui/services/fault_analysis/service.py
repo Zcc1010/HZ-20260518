@@ -556,38 +556,40 @@ class FaultAnalysisService:
             ctx += f"- 装置标识(stem): {device_stem}\n"
             sections.append(ctx)
 
-        # 1. HDR 信息
+        # 1. HDR 信息（GB18030 优先，因为 PCS-915D 等装置的 HDR 为 GB18030 编码）
         hdr_candidates = list(cfg_path.parent.glob("*.hdr")) + list(cfg_path.parent.glob("*.HDR"))
         if hdr_candidates:
             hdr_path = hdr_candidates[0]
-            try:
-                import xml.etree.ElementTree as ET
-                tree = ET.parse(str(hdr_path))
-                root = tree.getroot()
-                hdr_text = hdr_path.read_text(encoding="gb18030", errors="replace")
-                sections.append(f"### HDR 文件: {hdr_path.name}\n```xml\n{hdr_text[:10000]}\n```")
-            except Exception:
+            hdr_text = None
+            for enc in ("gb18030", "utf-8"):
                 try:
-                    hdr_text = hdr_path.read_text(encoding="utf-8", errors="replace")
-                    sections.append(f"### HDR 文件: {hdr_path.name}\n```\n{hdr_text[:10000]}\n```")
-                except Exception:
-                    pass
+                    hdr_text = hdr_path.read_text(encoding=enc)
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+            if hdr_text is None:
+                hdr_text = hdr_path.read_text(encoding="utf-8", errors="replace")
+            sections.append(f"### HDR 文件: {hdr_path.name}\n```xml\n{hdr_text[:150000]}\n```")
 
-        # 2. Events CSV
-        events_csv = output_dir / "rms" / f"{device_stem}_events.csv"
+        # 2. Events CSV（calculate_rms.py 生成的文件名格式: {stem}.events.csv）
+        events_csv = output_dir / "rms" / f"{device_stem}.events.csv"
+        if not events_csv.exists():
+            events_csv = output_dir / "rms" / f"{device_stem}_events.csv"
         if events_csv.exists():
             try:
                 events_text = events_csv.read_text(encoding="utf-8", errors="replace")
-                sections.append(f"### Events 文件: {events_csv.name}\n```csv\n{events_text[:5000]}\n```")
+                sections.append(f"### Events 文件: {events_csv.name}\n```csv\n{events_text[:20000]}\n```")
             except Exception:
                 pass
 
-        # 3. RMS CSV
-        rms_csv = output_dir / "rms" / f"{device_stem}_rms.csv"
+        # 3. RMS CSV（calculate_rms.py 生成的文件名格式: {stem}.rms.csv）
+        rms_csv = output_dir / "rms" / f"{device_stem}.rms.csv"
+        if not rms_csv.exists():
+            rms_csv = output_dir / "rms" / f"{device_stem}_rms.csv"
         if rms_csv.exists():
             try:
                 rms_text = rms_csv.read_text(encoding="utf-8", errors="replace")
-                sections.append(f"### RMS 文件: {rms_csv.name}\n```csv\n{rms_text[:5000]}\n```")
+                sections.append(f"### RMS 文件: {rms_csv.name}\n```csv\n{rms_text[:20000]}\n```")
             except Exception:
                 pass
 
@@ -732,8 +734,8 @@ class FaultAnalysisService:
         import subprocess
         import json as _json
 
-        # 收集所有 events.csv
-        events_csvs = list(rms_dir.glob("*_events.csv")) + list(rms_dir.glob("*_Events.csv"))
+        # 收集所有 events.csv（calculate_rms.py 生成 *.events.csv，兼容 *_events.csv）
+        events_csvs = list(rms_dir.glob("*.events.csv")) + list(rms_dir.glob("*_events.csv"))
         if len(events_csvs) < 2:
             print("[fault-analysis] 装置数 < 2，跳过跨装置对齐", flush=True)
             return

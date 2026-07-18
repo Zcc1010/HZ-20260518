@@ -244,23 +244,28 @@ body {
   background-color: #f9fafb;
 }
 .markdown-body pre {
-  background-color: #f9fafb !important;
+  background-color: #f6f8fa !important;
+  color: #1f2937 !important;
   padding: 16px !important;
   border-radius: 8px !important;
   overflow-x: auto;
   margin: 12px 0;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d1d5db;
+}
+.markdown-body pre code {
+  color: #1f2937 !important;
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.9em;
+  font-family: Consolas, Monaco, "Courier New", monospace;
 }
 .markdown-body code {
+  color: #1f2937 !important;
   background-color: #f3f4f6;
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 0.9em;
   font-family: Consolas, Monaco, "Courier New", monospace;
-}
-.markdown-body pre code {
-  background-color: transparent;
-  padding: 0;
 }
 .markdown-body ul {
   list-style-type: disc;

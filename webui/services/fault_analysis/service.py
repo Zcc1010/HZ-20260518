@@ -232,6 +232,38 @@ class FaultAnalysisService:
             self._update_progress(job_id, 5, "正在解压录波文件...")
             self._extract_all_archives(input_dir, output_dir)
 
+            # 故障录波 ZIP 可能在嵌套解压中未被处理，单独解压到所在目录
+            import zipfile as _zipfile
+            for _pass in range(3):
+                remaining_zips = [zf for zf in output_dir.rglob("*.zip") if zf.is_file()]
+                remaining_zips += [zf for zf in output_dir.rglob("*.ZIP") if zf.is_file()]
+                if not remaining_zips:
+                    break
+                for zf in remaining_zips:
+                    try:
+                        with _zipfile.ZipFile(zf, 'r') as z:
+                            names = z.namelist()
+                        if not names:
+                            continue
+                        dest_dir = zf.parent
+                        with _zipfile.ZipFile(zf, 'r') as z:
+                            for name in z.namelist():
+                                try:
+                                    raw_bytes = name.encode('cp437')
+                                    real_name = raw_bytes.decode('gbk')
+                                except (UnicodeDecodeError, UnicodeEncodeError):
+                                    real_name = name
+                                dest_path = dest_dir / real_name
+                                if name.endswith('/'):
+                                    dest_path.mkdir(parents=True, exist_ok=True)
+                                else:
+                                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                                    with z.open(name) as s, open(dest_path, 'wb') as d:
+                                        d.write(s.read())
+                        print(f"  [解压-补充] {zf.name}")
+                    except Exception as e:
+                        print(f"  [解压-补充失败] {zf.name}: {e}")
+
             # ── Step 0: 解析文件夹名 → device_metadata.json ──
             self._update_progress(job_id, 8, "正在解析装置信息...")
             device_metadata = self._run_parse_folder_name(scripts_dir, output_dir, job_dir)
@@ -275,9 +307,21 @@ class FaultAnalysisService:
                 raise RuntimeError("DAT 解析后未生成 CSV 文件")
 
             # calculate_rms.py 期望 CFG 文件与 CSV 在同一目录
+            # CSV 文件在子目录中（如 csv/安徽.屏显变_220kV母线第一套保护PCS915D/），
+            # 需要将 CFG 复制到相同子目录，否则 calculate_rms.py 找不到 CFG
             for cfg in cfg_files:
-                dest = csv_dir / cfg.name
+                cfg_stem = cfg.stem.upper()
+                matching_csv = None
+                for csv_f in csv_files:
+                    if csv_f.stem.upper() == cfg_stem:
+                        matching_csv = csv_f
+                        break
+                if matching_csv:
+                    dest = matching_csv.parent / cfg.name
+                else:
+                    dest = csv_dir / cfg.name
                 if not dest.exists():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(cfg, dest)
 
             # ── Step 4: 计算 RMS 统计 ──

@@ -1001,11 +1001,10 @@ class FaultAnalysisService:
                 suffix = arc.suffix.lower()
                 try:
                     if suffix == '.zwav':
-                        # .zwav 解压到以文件名命名的子目录，保留设备文件夹结构
-                        # parse_folder_name.py 依赖文件夹名提取厂站/设备/电压等元数据
-                        device_dir = output_dir / arc.stem
-                        device_dir.mkdir(parents=True, exist_ok=True)
-                        _extract_zip(arc, device_dir)
+                        # .zwav 解压到父目录（与上传压缩包解压逻辑一致）
+                        # 文件夹名已由 downloader 用 stName_equipmentName 命名，
+                        # parse_folder_name.py 依赖该文件夹名提取元数据
+                        _extract_zip(arc, arc.parent)
                     elif suffix == '.zip':
                         _extract_zip(arc, output_dir)
                     elif suffix == '.rar':
@@ -1032,22 +1031,27 @@ class FaultAnalysisService:
                     print(f"  [解压失败] {arc.name}: {e}")
             return found_new
 
-        # 复制 input_dir 中的压缩包到 output_dir（递归查找，支持子目录如 保护录波/）
+        # 复制 input_dir 中的压缩包到 output_dir（保留相对路径，维持目录结构）
         import shutil as _shutil
         for f in input_dir.rglob("*"):
             if f.is_file() and f.suffix.lower() in archive_exts:
-                _shutil.copy2(f, output_dir / f.name)
+                rel = f.relative_to(input_dir)
+                dest = output_dir / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                _shutil.copy2(f, dest)
 
         # 循环解压直到没有新的压缩包（处理嵌套：zip→zwav→cfg/dat/hdr）
         for _ in range(10):  # 最多 10 层，防止意外
             if not _extract_once():
                 break
 
-        # 如果 input_dir 中直接有 cfg/dat/hdr（非压缩包上传），复制到 output_dir（递归）
+        # 如果 input_dir 中直接有 cfg/dat/hdr（非压缩包上传），复制到 output_dir（保留相对路径）
         for ext in ['*.cfg', '*.CFG', '*.dat', '*.DAT', '*.hdr', '*.HDR']:
             for f in input_dir.rglob(ext):
-                dest = output_dir / f.name
+                rel = f.relative_to(input_dir)
+                dest = output_dir / rel
                 if not dest.exists():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
                     _shutil.copy2(f, dest)
 
     def update_evaluation(self, job_id: str, evaluation: str):

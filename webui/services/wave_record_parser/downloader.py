@@ -162,7 +162,7 @@ class EventDownloader:
         # 从详情中提取事件信息（用于生成 md）
         event_info = detail if isinstance(detail, dict) else {}
 
-        # 预取保护录波列表，从 shortName 推断设备文件夹名
+        # 预取保护录波列表，从 stName + equipmentName 构建设备文件夹名
         wave_list: list[dict] = detail.get("list") or detail.get("data", {}).get("list") or []
         sequences = detail.get("data", {}).get("sequences", [])
         seq_waves: list[dict] = []
@@ -172,20 +172,17 @@ class EventDownloader:
                     for w in equip.get("waves", []):
                         seq_waves.append(w)
 
-        # 从 shortName 提取设备文件夹名（与上传压缩包命名一致）
-        # shortName 示例: "安徽.屏显变_220kV母线第一套保护PCS915D_2026-06-18 08_41_01.587.ZWAV"
-        # parse_folder_name.py 期望的文件夹名: "安徽.屏显变_220kV母线第一套保护PCS915D_2026-06-18 08_41_01.587"
+        # 用 stName + equipmentName 构建设备文件夹名（parse_folder_name.py 期望的格式）
+        # 例: "安徽.屏显变" + "220kV母线第一套保护PCS915D" → "安徽.屏显变_220kV母线第一套保护PCS915D"
         folder_from_shortname = ""
         for w in wave_list + seq_waves:
-            sn = w.get("shortName", "")
-            if sn:
-                # 去掉 .ZWAV 后缀作为设备文件夹名
-                folder_from_shortname = sn
-                if folder_from_shortname.upper().endswith(".ZWAV"):
-                    folder_from_shortname = folder_from_shortname[:-5]
+            st = w.get("stName", "")
+            eq = w.get("equipmentName", "")
+            if st or eq:
+                folder_from_shortname = f"{st}_{eq}" if st and eq else (st or eq)
                 break
 
-        # 确定目录名：优先用 shortName 推断的名称（与 parse_folder_name 命名一致）
+        # 确定目录名：优先用 stName+equipmentName 构建的名称
         if folder_from_shortname:
             equipment_name = _sanitize_filename(folder_from_shortname)
         else:
@@ -196,9 +193,10 @@ class EventDownloader:
         os.makedirs(save_dir, exist_ok=True)
 
         # ---- 下载保护录波 (ZWAV) ----
+        # 按设备分组（每个设备一个子目录），供 _extract_all_archives 解压后 parse_folder_name 识别
         protection_dir = os.path.join(save_dir, "保护录波")
 
-        # 合并去重
+        # 合并去重，同时保留 stName + equipmentName 用于分组
         seen: set[str] = set()
         merged_waves: list[dict] = []
         for w in wave_list + seq_waves:
@@ -212,10 +210,21 @@ class EventDownloader:
             for w in merged_waves:
                 ap = w.get("absolutePath", "")
                 sn = w.get("shortName", "")
-                if ap and sn:
-                    self.download_protection_wave(ap, sn, protection_dir)
+                if not ap or not sn:
+                    continue
+                # 按设备分组：stName_equipmentName 作为子目录名
+                st = w.get("stName", "")
+                eq = w.get("equipmentName", "")
+                if st or eq:
+                    dev_folder = _sanitize_filename(f"{st}_{eq}" if st and eq else (st or eq))
+                else:
+                    dev_folder = "unknown"
+                dev_dir = os.path.join(protection_dir, dev_folder)
+                os.makedirs(dev_dir, exist_ok=True)
+                self.download_protection_wave(ap, sn, dev_dir)
 
         # ---- 下载故障录波器录波 ----
+        # 用 stName + iedName 构建描述性文件名（与保护录波命名风格一致）
         fault_dir = os.path.join(save_dir, "故障录波")
         fault_list: list[dict] = detail.get("faultList") or []
         if fault_list:
@@ -223,9 +232,19 @@ class EventDownloader:
             for item in fault_list:
                 fp = item.get("filepath", "")
                 oss_info = item.get("ossFileInfo", {})
-                fname = oss_info.get("fileName", "")
-                if not fname:
-                    fname = fp.rsplit("/", 1)[-1] if fp else "unknown"
+                # 优先用 stName + iedName 构建描述性文件名
+                st = item.get("stName", "")
+                ied = item.get("iedName", "")
+                if st or ied:
+                    desc_name = _sanitize_filename(f"{st}_{ied}" if st and ied else (st or ied))
+                else:
+                    desc_name = ""
+                # 保留原始扩展名
+                orig_fname = oss_info.get("fileName", "")
+                if not orig_fname:
+                    orig_fname = fp.rsplit("/", 1)[-1] if fp else "unknown"
+                ext = os.path.splitext(orig_fname)[1] if orig_fname else ".zip"
+                fname = f"{desc_name}{ext}" if desc_name else orig_fname
                 if fp:
                     self.download_gz_wave(fp, fname, fault_dir)
 

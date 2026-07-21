@@ -51,12 +51,17 @@ CREATE INDEX IF NOT EXISTS idx_fault_jobs_status_created_at
 class FaultAnalysisService:
     """电网故障智能分析服务"""
 
+    MAX_CONCURRENT_JOBS = 2
+
     def __init__(self, app_root: Path):
         self.app_root = app_root
         self.jobs_dir = app_root / "jobs"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self._db_path = app_root / "fault_analysis.db"
         self._initialized = False
+        self._semaphore: asyncio.Semaphore | None = None
+        self._queue: asyncio.Queue[tuple[str, Path, str, str]] | None = None
+        self._queue_worker_started = False
 
     def initialize(self):
         if self._initialized:
@@ -83,8 +88,32 @@ class FaultAnalysisService:
     def db_path(self):
         return self._db_path
 
+    def _ensure_queue(self):
+        """延迟初始化 asyncio 队列和信号量（需要在事件循环中调用）。"""
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_JOBS)
+        if self._queue is None:
+            self._queue = asyncio.Queue()
+
     def _schedule_queue(self):
-        pass
+        self._ensure_queue()
+        if not self._queue_worker_started:
+            self._queue_worker_started = True
+            asyncio.create_task(self._queue_worker())
+
+    async def _queue_worker(self):
+        """后台消费队列，按信号量限制并发执行分析任务。"""
+        while True:
+            job_id, input_dir, device_type, voltage_level = await self._queue.get()
+            await self._semaphore.acquire()
+            asyncio.create_task(self._run_analysis_with_sem(job_id, input_dir, device_type, voltage_level))
+
+    async def _run_analysis_with_sem(self, job_id: str, input_dir: Path, device_type: str, voltage_level: str):
+        """获取信号量后执行分析，完成后释放并触发下一个排队任务。"""
+        try:
+            await self._run_analysis(job_id, input_dir, device_type, voltage_level)
+        finally:
+            self._semaphore.release()
 
     def _conn(self):
         return connect(self._db_path)
@@ -103,7 +132,7 @@ class FaultAnalysisService:
             ).fetchone()
         return self._row_to_dict(row) if row else None
 
-    def create_job(
+    async def create_job(
         self,
         files: list[UploadFile],
         station: str,
@@ -131,11 +160,11 @@ class FaultAnalysisService:
             conn.execute(
                 """INSERT INTO jobs (id, status, created_at, updated_at, station, device, device_type, voltage_level, folder_path, external_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (job_id, "processing", now, now, station, device, device_type, voltage_level, str(input_dir), external_id or None),
+                (job_id, "queued", now, now, station, device, device_type, voltage_level, str(input_dir), external_id or None),
             )
 
-        # 启动后台分析任务
-        asyncio.create_task(self._run_analysis(job_id, input_dir, device_type, voltage_level))
+        self._ensure_queue()
+        await self._queue.put((job_id, input_dir, device_type, voltage_level))
 
         return self.get_job(job_id)
 
@@ -173,10 +202,11 @@ class FaultAnalysisService:
             conn.execute(
                 """INSERT INTO jobs (id, status, created_at, updated_at, station, device, device_type, voltage_level, folder_path, external_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (job_id, "processing", now, now, station, device, device_type, voltage_level, str(input_dir), external_id or None),
+                (job_id, "queued", now, now, station, device, device_type, voltage_level, str(input_dir), external_id or None),
             )
 
-        asyncio.create_task(self._run_analysis(job_id, input_dir, device_type, voltage_level))
+        self._ensure_queue()
+        await self._queue.put((job_id, input_dir, device_type, voltage_level))
 
         return self.get_job(job_id)
 
@@ -228,6 +258,10 @@ class FaultAnalysisService:
             return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=str(skill_dir), encoding="utf-8")
 
         try:
+            with self._conn() as conn:
+                conn.execute("UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ? AND status = 'queued'",
+                             (utcnow_iso(), job_id))
+
             # ── Step 1: 解压压缩包（支持嵌套：zip→zwav→cfg/dat/hdr）──
             self._update_progress(job_id, 5, "正在解压录波文件...")
             self._extract_all_archives(input_dir, output_dir)

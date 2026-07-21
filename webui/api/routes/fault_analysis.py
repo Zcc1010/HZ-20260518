@@ -109,7 +109,7 @@ async def create_fault_analysis_job(
         raise HTTPException(status_code=400, detail="请上传至少一个文件")
 
     try:
-        job = service.create_job(
+        job = await service.create_job(
             files=files,
             station=station,
             device=device,

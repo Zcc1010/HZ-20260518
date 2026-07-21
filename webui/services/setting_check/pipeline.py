@@ -94,24 +94,132 @@ def _extract_device_info(setting_md: str, setting_names: list[str]) -> dict:
             break
 
     # 从定值单内容提取电压等级
-    voltage_match = re.search(r'(\d+)\s*[kK][vV]', setting_md[:3000])
+    # 方法1: 从设备名称中提取（如 "220kV变压器"、"35kV线路"）
+    voltage_match = re.search(r'(\d+)\s*[kK][vV]', setting_md[:5000])
     if voltage_match:
         info["voltage_level"] = int(voltage_match.group(1))
 
-    # 从定值单内容提取装置型号
-    model_match = re.search(r'(?:保护装置型号|装置型号|保护型号)[：:\s]*([A-Za-z]+-?\d+[A-Za-z]*)', setting_md[:5000])
-    if model_match:
-        info["model"] = model_match.group(1).strip()
+    # 方法2: 如果设备名称中没有电压等级，从PT一次值推断
+    if info["voltage_level"] == 0:
+        # PT一次值格式: 高压侧PT一次值（千伏）= 220 或 PT一次值 = 220
+        pt_match = re.search(r'(?:高压侧PT一次值|PT一次值)[^=]*=\s*(\d+)', setting_md[:5000])
+        if pt_match:
+            pt_val = int(pt_match.group(1))
+            # 根据PT一次值推断电压等级
+            if pt_val >= 200:
+                info["voltage_level"] = 220
+            elif pt_val >= 100:
+                info["voltage_level"] = 110
+            elif pt_val >= 30:
+                info["voltage_level"] = 35
+            elif pt_val >= 10:
+                info["voltage_level"] = 10
 
-    # 从定值单内容提取软件版本
-    version_match = re.search(r'(?:软件版本|版本号|程序版本)[：:\s]*([^\s|]+)', setting_md[:5000])
-    if version_match:
-        info["version"] = version_match.group(1).strip()
+    # 方法3: 从额定电压字段提取（处理XLS转换后的格式）
+    # XLS转换后格式: | 5 | 高压侧额定电压（千伏） | ... | 230 |
+    if info["voltage_level"] == 0:
+        lines = setting_md[:8000].split('\n')
+        for line in lines:
+            # 查找包含额定电压的行（可能有编码问题，使用宽松匹配）
+            if '额定电压' in line or ('千伏' in line and re.search(r'\|\s*\d{2,3}\s*\|', line)):
+                # 提取数字（通常是 230、117、38 等）
+                numbers = re.findall(r'\|\s*(\d{2,3})\s*\|', line)
+                if numbers:
+                    # 取第一个数字作为高压侧额定电压
+                    rated_v = int(numbers[0])
+                    if rated_v >= 200:
+                        info["voltage_level"] = 220
+                        break
+                    elif rated_v >= 100:
+                        info["voltage_level"] = 110
+                        break
+                    elif rated_v >= 30:
+                        info["voltage_level"] = 35
+                        break
 
-    # 从定值单内容提取设备名称
-    device_match = re.search(r'(?:设备名称|被保护设备|一次设备)[：:\s]*([^\n|]+)', setting_md[:5000])
-    if device_match:
-        info["device"] = device_match.group(1).strip()
+    # 方法4: 从PT变比推断（如 "220kV/100V"）
+    if info["voltage_level"] == 0:
+        pt_ratio_match = re.search(r'(\d+)\s*[kK][vV]\s*/\s*\d+\s*[vV]', setting_md[:5000])
+        if pt_ratio_match:
+            pt_kv = int(pt_ratio_match.group(1))
+            if pt_kv >= 200:
+                info["voltage_level"] = 220
+            elif pt_kv >= 100:
+                info["voltage_level"] = 110
+            elif pt_kv >= 30:
+                info["voltage_level"] = 35
+
+    # 尝试从表格格式提取设备信息
+    # 格式1: | 设备所属 | 设备名称 | 装置型号 | 软件版本号 |
+    # 格式2: | 设备所属 | ... | 一次设备名称 | ... | 保护装置型号 | ... | (XLS格式，中间有空列)
+    # 格式3: 设备所属 ... 一次设备名称 ... 保护装置型号 ... (管道分隔但无表头行)
+
+    # 先尝试标准表格格式
+    table_match = re.search(
+        r'\|\s*设备所属\s*\|\s*设备名称\s*\|.*?\|\s*装置型号\s*\|\s*软件版本号\s*\|\s*\n'
+        r'\|[-\s:|]+\|\s*\n'
+        r'\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|.*?\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|',
+        setting_md[:5000],
+        re.DOTALL
+    )
+    if table_match:
+        info["station"] = info["station"] or table_match.group(1).strip()
+        info["device"] = table_match.group(2).strip()
+        info["model"] = table_match.group(3).strip()
+        info["version"] = table_match.group(4).strip()
+    else:
+        # 尝试从 XLS 转换后的格式提取（管道分隔，可能有空列）
+        # 查找包含设备信息的行
+        lines = setting_md[:8000].split('\n')
+        for i, line in enumerate(lines):
+            # 查找包含"设备所属"的行，确定列位置
+            if '设备所属' in line and '一次设备名称' in line:
+                cols = [c.strip() for c in line.split('|')]
+                # 找到各字段的列索引
+                station_idx = next((j for j, c in enumerate(cols) if '设备所属' in c), -1)
+                device_idx = next((j for j, c in enumerate(cols) if '一次设备名称' in c or '设备名称' in c), -1)
+                model_idx = next((j for j, c in enumerate(cols) if '保护装置型号' in c or '装置型号' in c), -1)
+                version_idx = next((j for j, c in enumerate(cols) if '装置版本' in c or '软件版本' in c), -1)
+
+                # 下一行是数据行
+                if i + 1 < len(lines):
+                    data_line = lines[i + 1]
+                    data_cols = [c.strip() for c in data_line.split('|')]
+
+                    if station_idx >= 0 and station_idx < len(data_cols) and data_cols[station_idx]:
+                        info["station"] = info["station"] or data_cols[station_idx]
+                    if device_idx >= 0 and device_idx < len(data_cols) and data_cols[device_idx]:
+                        info["device"] = data_cols[device_idx]
+                    if model_idx >= 0 and model_idx < len(data_cols) and data_cols[model_idx]:
+                        info["model"] = data_cols[model_idx]
+
+                # 版本可能在下一行或隔一行
+                if i + 2 < len(lines):
+                    version_line = lines[i + 2]
+                    if '版本' in version_line or 'V' in version_line:
+                        version_cols = [c.strip() for c in version_line.split('|')]
+                        # 查找版本号（通常格式：V数字.数字）
+                        for vc in version_cols:
+                            if re.match(r'^V\d+', vc):
+                                info["version"] = vc
+                                break
+                break
+
+        # 如果表格格式没找到，降级到 key：value 格式提取
+        if not info["model"]:
+            model_match = re.search(r'(?:保护装置型号|装置型号|保护型号)[：:\s]*([A-Za-z]+-?\d+[A-Za-z]*)', setting_md[:5000])
+            if model_match:
+                info["model"] = model_match.group(1).strip()
+
+        if not info["version"]:
+            version_match = re.search(r'(?:软件版本|版本号|程序版本|装置版本)[：:\s]*([^\s|]+)', setting_md[:5000])
+            if version_match:
+                info["version"] = version_match.group(1).strip()
+
+        if not info["device"]:
+            device_match = re.search(r'(?:设备名称|被保护设备|一次设备)[：:\s]*([^\n|]+)', setting_md[:5000])
+            if device_match:
+                info["device"] = device_match.group(1).strip()
 
     return info
 
@@ -210,7 +318,19 @@ def run_pipeline(
     upstream_template = load_upstream_template(device_type, voltage_level, REF_DIR)
     manual_content = load_manual_content(device_type, model, REF_DIR) if model else ""
 
-    # Step 4: 单次 LLM 调用（信息提取 + 校核合一）
+    # Step 4: 先生成报告头部，再让 LLM 生成正文
+    header = generate_header(
+        station=device_info.get("station", ""),
+        device=device_info.get("device", ""),
+        model=device_info.get("model", ""),
+        version=device_info.get("version", ""),
+        setting_file=", ".join(setting_names),
+        calc_file=", ".join(calc_names),
+        rules_names=rules_names,
+        device_type=device_type,
+        voltage_level=voltage_level,
+    )
+
     prompt = build_check_prompt(
         setting_md=all_setting_md,
         calc_md=all_calc_md,
@@ -223,6 +343,7 @@ def run_pipeline(
         manual_content=manual_content,
         upstream_template=upstream_template,
         device_principle=device_principle,
+        report_header=header,
     )
     draft = llm_call_func(prompt)
 
@@ -236,20 +357,7 @@ def run_pipeline(
         if val and (not device_info.get(key)):
             device_info[key] = val
 
-    # Step 7: 生成报告头部（基本信息）
-    header = generate_header(
-        station=device_info.get("station", ""),
-        device=device_info.get("device", ""),
-        model=device_info.get("model", ""),
-        version=device_info.get("version", ""),
-        setting_file=", ".join(setting_names),
-        calc_file=", ".join(calc_names),
-        rules_names=rules_names,
-        device_type=device_type,
-        voltage_level=voltage_level,
-    )
-
-    # Step 8: 拼接头部 + 报告正文，写入文件
+    # Step 7: 拼接头部 + 报告正文，写入文件
     full_report = header + report
 
     station = device_info.get("station", "未知")

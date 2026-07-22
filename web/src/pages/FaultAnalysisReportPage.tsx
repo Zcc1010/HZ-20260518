@@ -116,6 +116,7 @@ export default function FaultAnalysisReportPage() {
   const handleWsMessageRef = useRef<(msg: WsMessage) => void>(() => {});
   const contextSentRef = useRef(false);
   const jobRef = useRef<FaultAnalysisJob | null>(null);
+  const rerunMsgIdRef = useRef<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [chatInput, setChatInput] = useState("");
 
@@ -131,6 +132,7 @@ export default function FaultAnalysisReportPage() {
 
         if (currentJob.status === "completed") {
           setPolling(false);
+          rerunMsgIdRef.current = null;
           if (currentJob.preview_url) {
             const content = await fetchPreview(targetJobId);
             setPreviewContent(content);
@@ -139,6 +141,7 @@ export default function FaultAnalysisReportPage() {
         }
         if (currentJob.status === "failed") {
           setPolling(false);
+          rerunMsgIdRef.current = null;
           setError(currentJob.error_message || "分析失败");
           return;
         }
@@ -350,6 +353,7 @@ export default function FaultAnalysisReportPage() {
           const state = useChatStore.getState();
           const streamingMsg = state.messages.find((m) => m.id === streamId);
           if (streamingMsg?.content?.includes("正在为您重新生成报告")) {
+            rerunMsgIdRef.current = streamId;
             // 延迟触发，让消息先渲染
             setTimeout(() => handleRerun(), 500);
           }
@@ -596,52 +600,56 @@ export default function FaultAnalysisReportPage() {
           ) : (
             <div className="space-y-4">
               {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={cn("flex items-start gap-3", msg.role === "user" && "flex-row-reverse")}
-                >
-                  {msg.role === "assistant" && (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
-                      <BrainCircuit className="h-4 w-4 text-white" />
-                    </div>
-                  )}
+                <div key={msg.id}>
                   <div
-                    className={cn(
-                      "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm",
-                      msg.role === "user"
-                        ? "rounded-tr-sm bg-[#298c88] text-white"
-                        : "rounded-tl-sm bg-white/90 text-slate-700 border border-[#e8f0f0]",
-                    )}
+                    className={cn("flex items-start gap-3", msg.role === "user" && "flex-row-reverse")}
                   >
-                    {msg.role === "user" ? (
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                    ) : (
-                      <MarkdownRenderer content={msg.content} />
-                    )}
-                  </div>
-                </div>
-              ))}
-              {polling && (
-                <div className="flex items-start gap-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
-                    <Loader2 className="h-4 w-4 animate-spin text-white" />
-                  </div>
-                  <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-[#e8f0f0] bg-white/90 px-4 py-3 shadow-sm">
-                    <p className="text-sm text-[#333]">
-                      正在重新生成报告
-                      {job?.progress_message && <span className="text-[#298c88]"> — {job.progress_message}</span>}
-                    </p>
-                    {job?.progress !== undefined && job.progress > 0 && (
-                      <div className="mt-2 h-1.5 w-48 overflow-hidden rounded-full bg-[#e8f0f0]">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#298c88] to-[#00b3a6] transition-all duration-500"
-                          style={{ width: `${job.progress}%` }}
-                        />
+                    {msg.role === "assistant" && (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+                        <BrainCircuit className="h-4 w-4 text-white" />
                       </div>
                     )}
+                    <div
+                      className={cn(
+                        "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm",
+                        msg.role === "user"
+                          ? "rounded-tr-sm bg-[#298c88] text-white"
+                          : "rounded-tl-sm bg-white/90 text-slate-700 border border-[#e8f0f0]",
+                      )}
+                    >
+                      {msg.role === "user" ? (
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                      ) : (
+                        <MarkdownRenderer content={msg.content} />
+                      )}
+                    </div>
                   </div>
+                  {/* 进度条紧跟在触发重新生成的 AI 消息下方 */}
+                  {msg.id === rerunMsgIdRef.current && polling && (
+                    <div className="mt-3 ml-11 flex items-start gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+                        <Loader2 className="h-4 w-4 animate-spin text-white" />
+                      </div>
+                      <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-[#e8f0f0] bg-white/90 px-4 py-3 shadow-sm">
+                        <p className="text-sm text-[#333]">
+                          正在重新生成报告
+                          {job?.progress_message && (
+                            <span className="text-[#298c88]"> — {job.progress_message}</span>
+                          )}
+                        </p>
+                        {job?.progress !== undefined && job.progress > 0 && (
+                          <div className="mt-2 h-1.5 w-48 overflow-hidden rounded-full bg-[#e8f0f0]">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-[#298c88] to-[#00b3a6] transition-all duration-500"
+                              style={{ width: `${job.progress}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              ))}
             </div>
           )}
 

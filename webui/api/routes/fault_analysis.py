@@ -166,6 +166,23 @@ async def delete_fault_analysis_job(
         raise HTTPException(status_code=404, detail="任务不存在")
 
 
+@router.post("/jobs/{job_id}/rerun", response_model=FaultAnalysisJobInfo)
+async def rerun_fault_analysis_job(
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+    job_id: str,
+) -> FaultAnalysisJobInfo:
+    """重新运行已有任务的分析流水线（使用已上传的文件）。"""
+    ensure_agentplayground_enabled()
+    service = get_fault_analysis_service(svc)
+    try:
+        job = await service.rerun_job(job_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return FaultAnalysisJobInfo(**job)
+
+
 @router.get("/jobs/{job_id}/preview")
 async def preview_fault_analysis_report(
     svc: Annotated[ServiceContainer, Depends(get_services)],

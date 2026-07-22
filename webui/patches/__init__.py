@@ -24,11 +24,13 @@ risk_assessment_tool [RiskAssessmentTool] Register risk_assessment_collect tool 
 setting_parser_tool [SettingParserTool] Register setting_parse_device tool for auto download + parse setting sheets.
 setting_download_test_tool [SettingDownloadTestTool] Register setting_download_test tool for testing setting sheet download only.
 safety_ticket_tool [SafetyTicketTool] Register safety_ticket_review tools for safety ticket review.
+monthly_plan_tool [MonthlyPlanTool] Register monthly_plan_process tool for monthly plan Excel processing.
+fault_analysis_tool [FaultAnalysisTool] Register fault_analysis_rerun tool for re-running fault analysis pipeline.
 """
  
 from __future__ import annotations
  
-from webui.patches import channels, config, important_warn_tool, ledger_tool, memory_tool, mcp_dynamic, network, prompt, provider, risk_assessment_tool, safety_ticket_tool, session, setting_check_tool, setting_download_test_tool, setting_parser_tool, skills, status_tool, subagent, token_estimation, trip_briefing_tool
+from webui.patches import channels, config, fault_analysis_tool, important_warn_tool, ledger_tool, memory_tool, mcp_dynamic, monthly_plan_tool, network, prompt, provider, risk_assessment_tool, safety_ticket_tool, session, setting_check_tool, setting_download_test_tool, setting_parser_tool, skills, status_tool, subagent, token_estimation, trip_briefing_tool
 
 
 def apply_all() -> None:
@@ -53,3 +55,5 @@ def apply_all() -> None:
     setting_parser_tool.apply()
     setting_download_test_tool.apply()
     safety_ticket_tool.apply()
+    monthly_plan_tool.apply()
+    fault_analysis_tool.apply()

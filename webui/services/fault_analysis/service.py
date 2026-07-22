@@ -62,6 +62,7 @@ class FaultAnalysisService:
         self._semaphore: asyncio.Semaphore | None = None
         self._queue: asyncio.Queue[tuple[str, Path, str, str]] | None = None
         self._queue_worker_started = False
+        self._cancelled_jobs: set[str] = set()
 
     def initialize(self):
         if self._initialized:
@@ -105,6 +106,9 @@ class FaultAnalysisService:
         """后台消费队列，按信号量限制并发执行分析任务。"""
         while True:
             job_id, input_dir, device_type, voltage_level = await self._queue.get()
+            if self._is_cancelled(job_id):
+                self._cancelled_jobs.discard(job_id)
+                continue
             await self._semaphore.acquire()
             asyncio.create_task(self._run_analysis_with_sem(job_id, input_dir, device_type, voltage_level))
 
@@ -218,6 +222,49 @@ class FaultAnalysisService:
             ).fetchone()
         return self._row_to_dict(row) if row else None
 
+    async def rerun_job(self, job_id: str) -> dict | None:
+        """重新运行已有任务的分析流水线（使用已上传的文件）。"""
+        job = self.get_job(job_id)
+        if not job:
+            return None
+
+        folder_path = job.get("folder_path", "")
+        if not folder_path or not Path(folder_path).exists():
+            raise FileNotFoundError(f"任务的输入文件目录不存在: {folder_path}")
+
+        input_dir = Path(folder_path)
+        device_type = job.get("device_type", "")
+        voltage_level = job.get("voltage_level", "")
+
+        # 清理旧的 output 目录（保留 input 目录）
+        job_dir = input_dir.parent
+        output_dir = job_dir / "output"
+        if output_dir.exists():
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+        # 删除旧报告
+        old_report = job_dir / "故障分析报告.md"
+        if old_report.exists():
+            old_report.unlink()
+
+        # 重置任务状态
+        now = utcnow_iso()
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE jobs SET status = 'queued', updated_at = ?,
+                   error_message = NULL, result_file_name = NULL,
+                   result_relative_path = NULL, result_download_token = NULL,
+                   result_file_size = NULL, progress = 0, progress_message = '等待重新分析'
+                   WHERE id = ?""",
+                (now, job_id),
+            )
+
+        # 加入分析队列
+        self._ensure_queue()
+        await self._queue.put((job_id, input_dir, device_type, voltage_level))
+
+        return self.get_job(job_id)
+
     def _resolve_skill_dir(self, skill_name: str) -> Path:
         """查找 skills 目录，兼容开发环境和 pip 安装部署。"""
         import os
@@ -241,9 +288,17 @@ class FaultAnalysisService:
             + ", ".join(str(c) for c in candidates if c)
         )
 
+    def _is_cancelled(self, job_id: str) -> bool:
+        """检查任务是否已被取消（删除）。"""
+        return job_id in self._cancelled_jobs
+
     async def _run_analysis(self, job_id: str, input_dir: Path, device_type: str, voltage_level: str):
         """后台运行故障分析：9步流水线（对齐客户子Agent架构）"""
         import subprocess
+
+        if self._is_cancelled(job_id):
+            self._cancelled_jobs.discard(job_id)
+            return
 
         skill_dir = self._resolve_skill_dir("fault-analysis")
         scripts_dir = skill_dir / "scripts"
@@ -421,6 +476,8 @@ class FaultAnalysisService:
                     "UPDATE jobs SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?",
                     (str(e), utcnow_iso(), job_id),
                 )
+        finally:
+            self._cancelled_jobs.discard(job_id)
 
     # ──────────────────────────────────────────────────────────────
     # 流水线各步骤方法
@@ -1143,6 +1200,9 @@ class FaultAnalysisService:
         job = self.get_job(job_id)
         if not job:
             return False
+
+        # 标记为已取消，让正在运行的流水线在下一个检查点退出
+        self._cancelled_jobs.add(job_id)
 
         # 删除文件
         job_dir = self.jobs_dir / job_id

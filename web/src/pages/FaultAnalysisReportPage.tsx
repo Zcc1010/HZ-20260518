@@ -89,6 +89,7 @@ export default function FaultAnalysisReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [polling, setPolling] = useState(false);
+  const [rerunning, setRerunning] = useState(false);
 
   const displayStation = job?.station || equipmentName.split(" ")[0] || "未知站点";
   const displayDevice = job?.device || equipmentName.split(" ").slice(1).join(" ") || equipmentName || "未知设备";
@@ -271,6 +272,30 @@ export default function FaultAnalysisReportPage() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, progressText]);
 
+  const handleRerun = useCallback(async () => {
+    const currentJobId = jobRef.current?.id || jobId;
+    if (!currentJobId || rerunning) return;
+    setRerunning(true);
+    setError(null);
+    try {
+      const res = await fetch(withBasePath(`/api/fault-analysis/jobs/${currentJobId}/rerun`), {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "重新分析失败");
+      }
+      const updatedJob = await res.json();
+      setJob(updatedJob);
+      setPreviewContent("");
+      startPolling(updatedJob.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重新分析失败");
+    } finally {
+      setRerunning(false);
+    }
+  }, [jobId, rerunning, startPolling]);
+
   const handleWsMessage = useCallback(
     (msg: WsMessage) => {
       const msgSessionKey = msg.session_key;
@@ -319,6 +344,16 @@ export default function FaultAnalysisReportPage() {
         }
         setProgress("", targetKey);
       } else if (msg.type === "stream_end") {
+        // 检测 AI 回复中是否包含重新生成触发词
+        const streamId = assistantMsgIdsRef.current[targetKey];
+        if (streamId) {
+          const state = useChatStore.getState();
+          const streamingMsg = state.messages.find((m) => m.id === streamId);
+          if (streamingMsg?.content?.includes("正在为您重新生成报告")) {
+            // 延迟触发，让消息先渲染
+            setTimeout(() => handleRerun(), 500);
+          }
+        }
         patchStreamingMessage({ isStreaming: false });
         delete assistantMsgIdsRef.current[targetKey];
       } else if (msg.type === "progress") {
@@ -341,7 +376,7 @@ export default function FaultAnalysisReportPage() {
         });
       }
     },
-    [addMessage, setCurrentSession, setMessages, setProgress, setWaiting],
+    [addMessage, setCurrentSession, setMessages, setProgress, setWaiting, handleRerun],
   );
 
   useEffect(() => {
@@ -377,13 +412,16 @@ export default function FaultAnalysisReportPage() {
     let ctx =
       `以下是电网故障智能分析报告的完整内容，请基于这份报告回答后续问题。\n\n` +
       `--- 报告开始 ---\n${previewContent}\n--- 报告结束 ---\n\n` +
+      `【故障分析任务信息】\n` +
       `任务 ID：${job?.id || jobId}\n` +
       `厂站：${displayStation}\n` +
       `设备：${displayDevice}\n` +
       `设备类型：${job?.device_type || "未知"}\n` +
       `电压等级：${job?.voltage_level || "未知"}\n\n`;
     ctx += `重要行为规则：\n`;
-    ctx += `- 当你重新生成或修改了报告后，必须告知用户"左侧报告已自动更新"。\n`;
+    ctx += `- 这是「故障分析报告」，不是「定值校核报告」或「跳闸简报」。不要使用 setting_check_* 或 trip_briefing_* 工具。\n`;
+    ctx += `- 当用户要求"重新生成报告"时，回复中必须包含「正在为您重新生成报告」这句话，系统会自动触发重新分析。如果用户提出了新的规则或要求，先说明规则，再说「正在为您重新生成报告」。\n`;
+    ctx += `- 当用户要求修改报告的某个章节时，直接基于报告内容进行文字修改并输出修改后的内容。\n`;
     ctx += `- 不要主动提供下载链接，除非用户明确要求下载。\n\n`;
     ctx += `用户问题：${userQuestion}`;
     return ctx;
@@ -408,8 +446,8 @@ export default function FaultAnalysisReportPage() {
     setChatInput("");
   };
 
-  // Loading state
-  if (loading || polling) {
+  // Loading state (only for initial load, not polling)
+  if (loading) {
     return (
       <div className="flex h-screen flex-col items-center justify-center bg-gradient-to-br from-[#f0f7fa] to-[#e8f4f3]">
         <div className="flex flex-col items-center gap-6 rounded-3xl bg-white/80 px-12 py-10 shadow-lg backdrop-blur-sm">
@@ -417,24 +455,9 @@ export default function FaultAnalysisReportPage() {
             <Loader2 className="h-8 w-8 animate-spin text-white" />
           </div>
           <div className="text-center">
-            <p className="text-lg font-medium text-[#333]">
-              {polling ? "正在生成分析报告" : "加载分析报告"}
-            </p>
-            {polling && job?.progress_message && (
-              <p className="mt-2 text-sm text-[#298c88]">{job.progress_message}</p>
-            )}
-            <p className="mt-2 text-sm text-[#888]">
-              {polling ? "请耐心等待..." : "请稍候..."}
-            </p>
+            <p className="text-lg font-medium text-[#333]">加载分析报告</p>
+            <p className="mt-2 text-sm text-[#888]">请稍候...</p>
           </div>
-          {polling && job?.progress !== undefined && job.progress > 0 && (
-            <div className="w-48 overflow-hidden rounded-full bg-[#e8f0f0]">
-              <div
-                className="h-1.5 rounded-full bg-gradient-to-r from-[#298c88] to-[#00b3a6] transition-all duration-500"
-                style={{ width: `${job.progress}%` }}
-              />
-            </div>
-          )}
         </div>
       </div>
     );
@@ -598,6 +621,27 @@ export default function FaultAnalysisReportPage() {
                   </div>
                 </div>
               ))}
+              {polling && (
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#298c88] to-[#00706b] shadow-sm">
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                  </div>
+                  <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-[#e8f0f0] bg-white/90 px-4 py-3 shadow-sm">
+                    <p className="text-sm text-[#333]">
+                      正在重新生成报告
+                      {job?.progress_message && <span className="text-[#298c88]"> — {job.progress_message}</span>}
+                    </p>
+                    {job?.progress !== undefined && job.progress > 0 && (
+                      <div className="mt-2 h-1.5 w-48 overflow-hidden rounded-full bg-[#e8f0f0]">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-[#298c88] to-[#00b3a6] transition-all duration-500"
+                          style={{ width: `${job.progress}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

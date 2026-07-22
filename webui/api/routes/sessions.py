@@ -49,6 +49,56 @@ async def list_sessions(
     ]
 
 
+# ---------------------------------------------------------------------------
+# Tool memory endpoints — MUST be before /{key:path}/ routes
+# ---------------------------------------------------------------------------
+
+@router.get("/tool-memory", response_model=list[str])
+async def list_tool_memories(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+) -> list[str]:
+    """List all tool namespaces that have memory."""
+    from webui.services.memory_tool import ToolMemoryStore
+    workspace = svc.config.workspace_path
+    return ToolMemoryStore.list_tool_namespaces(workspace)
+
+
+@router.get("/tool-memory/{tool_name}", response_model=dict)
+async def get_tool_memory(
+    tool_name: str,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+) -> dict:
+    """Get memory content for a specific tool."""
+    from webui.services.memory_tool import ToolMemoryStore
+    workspace = svc.config.workspace_path
+    store = ToolMemoryStore(workspace, tool_name)
+    return {
+        "tool": tool_name,
+        "memory": store.read_memory(),
+    }
+
+
+@router.put("/tool-memory/{tool_name}", response_model=dict)
+async def update_tool_memory(
+    tool_name: str,
+    body: ToolMemoryUpdate,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    svc: Annotated[ServiceContainer, Depends(get_services)],
+) -> dict:
+    """Update memory content for a specific tool."""
+    from webui.services.memory_tool import ToolMemoryStore
+    workspace = svc.config.workspace_path
+    store = ToolMemoryStore(workspace, tool_name)
+    store.write_memory(body.content)
+    return {"ok": True, "tool": tool_name}
+
+
+# ---------------------------------------------------------------------------
+# Session-specific endpoints (/{key:path}/...)
+# ---------------------------------------------------------------------------
+
 @router.get("/{key:path}/messages", response_model=list[MessageInfo])
 async def get_session_messages(
     key: str,
@@ -131,49 +181,3 @@ async def delete_session(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
 
     svc.session_manager.delete(key)
-
-
-# ---------------------------------------------------------------------------
-# Tool memory endpoints
-# ---------------------------------------------------------------------------
-
-@router.get("/tools/memory", response_model=list[str])
-async def list_tool_memories(
-    current_user: Annotated[dict, Depends(get_current_user)],
-    svc: Annotated[ServiceContainer, Depends(get_services)],
-) -> list[str]:
-    """List all tool namespaces that have memory."""
-    from nanobot.agent.memory import MemoryStore
-    workspace = svc.config.workspace_path
-    return MemoryStore.list_tool_namespaces(workspace)
-
-
-@router.get("/tools/{tool_name}/memory", response_model=dict)
-async def get_tool_memory(
-    tool_name: str,
-    current_user: Annotated[dict, Depends(get_current_user)],
-    svc: Annotated[ServiceContainer, Depends(get_services)],
-) -> dict:
-    """Get memory content for a specific tool."""
-    from nanobot.agent.memory import MemoryStore
-    workspace = svc.config.workspace_path
-    store = MemoryStore(workspace, tool_namespace=tool_name)
-    return {
-        "tool": tool_name,
-        "memory": store.read_memory(),
-    }
-
-
-@router.put("/tools/{tool_name}/memory", response_model=dict)
-async def update_tool_memory(
-    tool_name: str,
-    body: ToolMemoryUpdate,
-    current_user: Annotated[dict, Depends(get_current_user)],
-    svc: Annotated[ServiceContainer, Depends(get_services)],
-) -> dict:
-    """Update memory content for a specific tool."""
-    from nanobot.agent.memory import MemoryStore
-    workspace = svc.config.workspace_path
-    store = MemoryStore(workspace, tool_namespace=tool_name)
-    store.write_memory(body.content)
-    return {"ok": True, "tool": tool_name}

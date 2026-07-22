@@ -11,7 +11,7 @@ export interface ToolMemory {
 export function useToolMemories() {
   return useQuery<string[]>({
     queryKey: ["tool-memories"],
-    queryFn: () => api.get("/sessions/tools/memory").then((r) => r.data),
+    queryFn: () => api.get("/sessions/tool-memory").then((r) => r.data),
   });
 }
 
@@ -19,7 +19,7 @@ export function useToolMemory(toolName: string) {
   return useQuery<ToolMemory>({
     queryKey: ["tool-memory", toolName],
     queryFn: () =>
-      api.get(`/sessions/tools/${encodeURIComponent(toolName)}/memory`).then((r) => r.data),
+      api.get(`/sessions/tool-memory/${encodeURIComponent(toolName)}`).then((r) => r.data),
     enabled: !!toolName,
   });
 }
@@ -28,7 +28,7 @@ export function useUpdateToolMemory(toolName: string) {
   const qc = useQueryClient();
   return mutationWithToast({
     mutationFn: (content: string) =>
-      api.put(`/sessions/tools/${encodeURIComponent(toolName)}/memory`, { content }).then((r) => r.data),
+      api.put(`/sessions/tool-memory/${encodeURIComponent(toolName)}`, { content }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tool-memory", toolName] });
       qc.invalidateQueries({ queryKey: ["tool-memories"] });

@@ -1,4 +1,8 @@
-"""Memory tools — read and write tool-specific memory files."""
+"""Memory tools — read and write tool-specific memory files.
+
+Each tool has its own memory namespace stored at:
+    ~/.nanobot/workspace/memory/tools/{tool_name}/MEMORY.md
+"""
 
 from __future__ import annotations
 
@@ -9,7 +13,35 @@ from loguru import logger
 
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
-from nanobot.agent.memory import MemoryStore
+
+
+class ToolMemoryStore:
+    """Standalone file-based memory store for tool-specific namespaces."""
+
+    def __init__(self, workspace: Path, tool_name: str):
+        self.tool_name = tool_name
+        self.memory_dir = workspace / "memory" / "tools" / tool_name
+        self.memory_file = self.memory_dir / "MEMORY.md"
+
+    def read_memory(self) -> str:
+        try:
+            return self.memory_file.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return ""
+
+    def write_memory(self, content: str) -> None:
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.memory_file.write_text(content, encoding="utf-8")
+
+    @staticmethod
+    def list_tool_namespaces(workspace: Path) -> list[str]:
+        tools_dir = workspace / "memory" / "tools"
+        if not tools_dir.exists():
+            return []
+        return sorted(
+            d.name for d in tools_dir.iterdir()
+            if d.is_dir() and (d / "MEMORY.md").exists()
+        )
 
 
 @tool_parameters(
@@ -28,7 +60,7 @@ class MemoryReadTool(Tool):
             return "错误：请指定工具名称（tool_name）"
 
         workspace = Path.home() / ".nanobot" / "workspace"
-        store = MemoryStore(workspace, tool_namespace=tool_name)
+        store = ToolMemoryStore(workspace, tool_name)
         content = store.read_memory()
 
         if not content:
@@ -57,7 +89,7 @@ class MemoryWriteTool(Tool):
             return "错误：请提供要写入的记忆内容（content）"
 
         workspace = Path.home() / ".nanobot" / "workspace"
-        store = MemoryStore(workspace, tool_namespace=tool_name)
+        store = ToolMemoryStore(workspace, tool_name)
         store.write_memory(content)
 
         logger.info("MemoryWriteTool: wrote memory for tool '{}'", tool_name)

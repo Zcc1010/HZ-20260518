@@ -8,6 +8,7 @@ import { ChatWebSocket, type WsMessage } from "../../lib/ws";
 import { MessageBubble, extractArtifactPaths } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { useRevokeMessage } from "../../hooks/useSessions";
+import { useToolMemory } from "../../hooks/useToolMemory";
 import { MessageSquare, BrainCircuit } from "lucide-react";
 
 interface ChatWindowProps {
@@ -15,12 +16,15 @@ interface ChatWindowProps {
   isLoading?: boolean;
   moduleTitle?: string;
   moduleIcon?: React.ElementType;
+  toolName?: string;
 }
 
-export function ChatWindow({ urlSessionKey, isLoading, moduleTitle, moduleIcon }: ChatWindowProps = {}) {
+export function ChatWindow({ urlSessionKey, isLoading, moduleTitle, moduleIcon, toolName }: ChatWindowProps = {}) {
   const { t } = useTranslation();
   const ModuleIcon = moduleIcon;
   const qc = useQueryClient();
+  const { data: toolMemory } = useToolMemory(toolName || "");
+  const memoryInjectedRef = useRef(false);
   const {
     currentSessionKey,
     messages,
@@ -85,6 +89,11 @@ export function ChatWindow({ urlSessionKey, isLoading, moduleTitle, moduleIcon }
     const el = scrollContainerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, progressText]);
+
+  // Reset memory injection flag when session changes
+  useEffect(() => {
+    memoryInjectedRef.current = false;
+  }, [currentSessionKey, toolName]);
 
   const handleWsMessage = useCallback(
     (msg: WsMessage) => {
@@ -254,9 +263,18 @@ export function ChatWindow({ urlSessionKey, isLoading, moduleTitle, moduleIcon }
       const key = currentSessionKey ?? "";
       setWaiting(true, key);
       setProgress(t("chat.thinking"), key);
-      wsRef.current?.send(content, currentSessionKey ?? undefined);
+
+      // Inject tool memory context on the first message of the session
+      let sendContent = content;
+      if (toolName && toolMemory?.memory && !memoryInjectedRef.current) {
+        memoryInjectedRef.current = true;
+        sendContent =
+          `【${toolName} 工具记忆】以下是该工具的长期记忆，回答时请参考：\n\n${toolMemory.memory}\n\n---\n\n用户问题：${content}`;
+      }
+
+      wsRef.current?.send(sendContent, currentSessionKey ?? undefined);
     },
-    [addMessage, currentSessionKey, setProgress, setWaiting, t]
+    [addMessage, currentSessionKey, setProgress, setWaiting, t, toolName, toolMemory]
   );
 
   const handleStop = useCallback(() => {

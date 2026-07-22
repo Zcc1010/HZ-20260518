@@ -11,7 +11,7 @@ import { cn } from "../../lib/utils";
 
 export default function AppLayout() {
   const { pathname } = useLocation();
-  const isChatPage = pathname.startsWith("/chat") || pathname === "/wave-record" || pathname === "/setting-check" || pathname === "/setting-parser" || pathname === "/risk-assessment" || pathname === "/fault-analysis" || pathname === "/safety-ticket-review";
+  const isChatPage = pathname.startsWith("/chat") || pathname === "/wave-record" || pathname === "/setting-check" || pathname === "/setting-parser" || pathname === "/risk-assessment" || pathname === "/fault-analysis" || pathname === "/safety-ticket-review" || pathname === "/monthly-plan";
   const [collapsed, setCollapsed] = useState(() => {
     const saved = localStorage.getItem("sidebarCollapsed");
     return saved === "true";

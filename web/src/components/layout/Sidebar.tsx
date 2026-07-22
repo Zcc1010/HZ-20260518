@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import { useAuthStore } from "../../stores/authStore";
 import { BRAND_ASSETS, BRAND_NAME } from "../../lib/branding";
 import { cn } from "../../lib/utils";
-import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen, MessageSquare, ChevronDown, BrainCircuit, FileCheck, Zap, FileText, ShieldAlert, ClipboardCheck } from "lucide-react";
+import { Radio, Puzzle, Clock, Settings, Users, FileJson, Sun, Moon, Languages, LogOut, KeyRound, PanelLeftClose, PanelLeftOpen, MessageSquare, ChevronDown, BrainCircuit, FileCheck, Zap, FileText, ShieldAlert, ClipboardCheck, CalendarDays } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +42,7 @@ const GENERAL_ITEMS: NavItem[] = [
       { path: "/setting-parser", label: "nav.settingParser", icon: FileText },
       { path: "/risk-assessment", label: "nav.riskAssessment", icon: ShieldAlert },
       { path: "/safety-ticket-review", label: "nav.safetyTicketReview", icon: ClipboardCheck },
+      { path: "/monthly-plan", label: "nav.monthlyPlan", icon: CalendarDays },
     ],
   },
 ];

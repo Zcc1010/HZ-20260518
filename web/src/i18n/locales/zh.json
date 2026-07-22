@@ -22,6 +22,7 @@
     "settingParser": "定值单解析",
     "riskAssessment": "运行风险评估",
     "safetyTicketReview": "安措票审查",
+    "monthlyPlan": "月度计划",
     "section": {
       "general": "通用",
       "admin": "管理"
@@ -95,6 +96,7 @@
     "settingParser": "定值单解析",
     "riskAssessment": "运行风险评估",
     "safetyTicketReview": "安措票审查",
+    "monthlyPlan": "月度计划",
     "revokeConfirmTitle": "撤回消息",
     "revokeConfirmDescription": "此操作将删除该消息及其之后的所有消息，确定继续？",
     "messageRevoked": "消息已撤回",

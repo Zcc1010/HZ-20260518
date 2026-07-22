@@ -19,6 +19,7 @@
     "waveRecord": "Wave Record",
     "settingCheck": "Setting Check",
     "faultAnalysis": "Fault Analysis",
+    "monthlyPlan": "Monthly Plan",
     "section": {
       "general": "General",
       "admin": "Admin"
@@ -89,6 +90,7 @@
     "waveRecord": "Wave Record",
     "settingCheck": "Setting Check",
     "faultAnalysis": "Fault Analysis",
+    "monthlyPlan": "Monthly Plan",
     "revokeConfirmTitle": "Revoke Message",
     "revokeConfirmDescription": "This will delete this message and all subsequent messages. Continue?",
     "messageRevoked": "Message revoked",
